@@ -200,14 +200,17 @@ def calibrate(axes_keys: list[str], layer_stride: int, alphas: list[float],
                 av = {key: sign * a}
                 g, c = measure(eng, ax, av, {key: prof}, max_new)
                 rows.append({"alpha": a, "score": g, "kl": c})
-                ok = (g > 0 if ax.get("readout") != "length" else g < 0)
+                # Il segno atteso dipende dal polo: steerare verso destra deve
+                # aumentare il margine (o la lunghezza), verso sinistra diminuirlo.
+                # Vale per entrambi i readout, perché i probe sono allineati
+                # (pos = polo destro, neg = polo sinistro).
+                ok = (g * sign) > 0
                 if ok and c <= kl_budget:
                     best = a
             if best is None and rows:
                 # nessun α passa: prendi quello con miglior rapporto effetto/costo
                 def ratio(r):
-                    s = r["score"] if ax.get("readout") != "length" else -r["score"]
-                    return s / (r["kl"] + 0.05)
+                    return (r["score"] * sign) / (r["kl"] + 0.05)
                 best = max(rows, key=ratio)["alpha"]
                 weak = True
             else:
