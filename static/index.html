@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STEERLAB — chat con steering</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="brand"><span class="mark">◈</span> STEERLAB <em>colab</em></div>
+    <div id="status" class="status">—</div>
+    <div class="hdr-actions">
+      <button id="btnLoad" class="btn primary">CARICA MODELLO</button>
+      <button id="btnReset" class="btn">azzera assi</button>
+    </div>
+  </header>
+
+  <main>
+    <aside id="sidebar">
+      <div class="hint">
+        Trascina una barra per steerare. <b>0</b> = nessuno steering.
+        Il valore mostrato è l'intensità α applicata. Il testo può restare identico: guarda KL.
+      </div>
+      <div id="families"></div>
+      <div class="foot">
+        <span id="calInfo">calibrazione: —</span>
+      </div>
+    </aside>
+
+    <section id="chatpane">
+      <div id="chatlog"></div>
+      <div id="strip" class="strip"></div>
+      <div class="inputrow">
+        <textarea id="input" placeholder="Scrivi… (Invio invia, Shift+Invio va a capo)" spellcheck="false"></textarea>
+        <div class="sendcol">
+          <label class="mini">max token <input id="maxnew" type="number" min="8" max="256" value="96"></label>
+          <button id="send" class="btn primary">INVIA</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="modal" class="hidden">
+  <div class="card">
+    <div class="mhead">
+      <span id="mtitle">avanzate</span>
+      <button id="mclose" class="x">✕</button>
+    </div>
+    <div class="mrow two">
+      <label>estremo sinistro <input id="mleft" type="number" step="0.01" min="0.02" max="1.5"></label>
+      <label>estremo destro <input id="mright" type="number" step="0.01" min="0.02" max="1.5"></label>
+    </div>
+    <div class="mlabel">equalizzatore per layer <span class="mini" id="eqhint">trascina sulle barre</span></div>
+    <canvas id="eq" height="110"></canvas>
+    <div class="mrow">
+      <button id="eqCal" class="btn tiny">calibrato</button>
+      <button id="eqFlat" class="btn tiny">piatto</button>
+      <button id="eqZero" class="btn tiny">azzera</button>
+      <div class="spacer"></div>
+      <button id="eqApply" class="btn primary">applica</button>
+    </div>
+    <div id="mmetrics" class="mini metrics"></div>
+  </div>
+</div>
+
+<script src="/static/axes.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

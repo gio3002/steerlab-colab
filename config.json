@@ -1,0 +1,8 @@
+{
+ "model_id": "Qwen/Qwen3-1.7B",
+ "load_4bit": true,
+ "device": "auto",
+ "port": 7860,
+ "default_extreme": 0.35,
+ "max_new_default": 96
+}

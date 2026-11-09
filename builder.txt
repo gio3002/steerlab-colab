@@ -1,0 +1,377 @@
+================================================================================
+BUILDER.TXT — specifica di costruzione di STEERLAB COLAB
+================================================================================
+Questo file è scritto per un ALTRO LLM, non per un umano. Deve contenere tutto
+ciò che serve per capire, mantenere, estendere o rifare questo progetto senza
+avere la conversazione originale. Va aggiornato a ogni modifica sostanziale:
+in fondo c'è un LOG con data, cosa è stato fatto e perché.
+
+Ultimo aggiornamento: 2026-11-09 23:40 (fuso Europe/Rome)
+
+================================================================================
+0. RICHIESTA ORIGINALE DELL'UTENTE (verbatim, ridotta)
+================================================================================
+"Prepara la cartella git minimale che usa le GPU di Colab. Deve mettermi una
+cartella APP con dentro l'avviatore del server e il link (o html ancora meglio)
+per entrare nell'app; di default sta spento, lo faccio partire solo quando mi
+serve (versione in locale). Quella nuova non deve usare risorse in locale, deve
+essere tutto contenuto su git, progetto privato ma condivisibile con amici.
+Non ho mai usato git. Carica un modello abbastanza grosso (ma che ci stia su
+github), grosso tra i piccoli, anche con pesi quantizzati: il punto è che non
+sia scemo, che risponda cose intelligenti; magari i modelli più nuovi piccoli
+ma distillati. Suddividi i vettori di steering in famiglie:
+  stile: conciso/prolisso, informale/formale, tradizionale/slang tecnico
+  emozioni: tranquillo/aggressivo, pessimista/ottimista, serio/divertito
+  modalità: convenzionale/creativo, refrattario/obbediente, sicofante/critico
+Per ognuna una barra da una parola all'altra, default zero (no steering).
+Gli estremi, non per forza simmetrici, devono corrispondere all'intensità
+migliore calcolata sul modello scelto, quindi a posteriori. Non devo poter
+scegliere gli estremi dalla barra, ma devo vedere il valore numerico.
+Di fianco a ogni barra un simbolo: cliccandolo si aprono le avanzate, dove posso
+scegliere gli estremi e regolare un equalizzatore (intensità per ogni layer),
+default al valore ottimale. Lo spettro equalizzato migliore: non solo a
+tentativi, studia e implementa la letteratura accademica.
+builder.txt con tutte le informazioni, per altri LLM, aggiornato man mano."
+
+================================================================================
+1. DECISIONI DI PROGETTO (con motivazione)
+================================================================================
+1.1 MODELLO
+    Scelta: Qwen3-1.7B (HuggingFace `Qwen/Qwen3-1.7B`), 4-bit NF4 su GPU.
+    Fallback automatico: `Qwen/Qwen2.5-1.5B-Instruct`.
+    Perché: è un modello 2025 "piccolo ma distillato", molto più capace dei
+    360M usati in locale; 1.7B in 4-bit occupa ~1.1 GB di VRAM, entra comodo in
+    una T4 di Colab (16 GB) e lascia spazio a attivazioni e batch.
+    Qwen3 ha una "thinking mode": va DISATTIVATA (`enable_thinking=False` nel
+    chat template) perché qui serve un assistente diretto, non una CoT lunga.
+    Se il tokenizer non supporta il flag, si usa il template normale.
+
+1.2 PESI: perché NON sono nel repo
+    GitHub blocca i file >100 MB senza Git LFS; il tier gratuito LFS è 1 GB di
+    storage e 1 GB/mese di banda. Un 1.5B in 4-bit pesa ~1 GB: starebbe a filo,
+    ma renderebbe il repo lentissimo da clonare e fragile.
+    Quindi: il repo contiene CODICE + CALIBRAZIONE (pochi MB) e il modello viene
+    scaricato da HuggingFace all'avvio su Colab (~1 minuto, nessuna risorsa
+    locale). `config.json` contiene `model_id`, `load_4bit`, `device`.
+    Se in futuro si vuole tutto nel repo: `git lfs track "*.safetensors"` e
+    committare i pesi; la variabile `STEERLAB_MODEL_DIR` punta a una cartella
+    locale. Il codice supporta già entrambe le strade.
+
+1.3 DOVE GIRA
+    Colab (GPU) per la versione "condivisibile". Nessuna risorsa locale.
+    In locale (opzionale, per sviluppo) funziona anche su CPU con
+    `STEERLAB_MODEL_ID=HuggingFaceTB/SmolLM2-360M-Instruct` e `load_4bit=false`.
+
+1.4 COME SI CONDIVIDE
+    Repo GitHub privato + quando si avvia su Colab, `app.py --tunnel` apre un
+    tunnel Cloudflare pubblico temporaneo (`cloudflared`), stampa l'URL e lo
+    mostra nel notebook. Chi ha il link entra; alla chiusura del runtime il link
+    muore. Nessun dato viene salvato lato server oltre alla sessione in memoria.
+
+1.5 PERCHÉ UNA SOLA APP E NON DUE
+    La UI è la stessa logica del progetto locale (chat + streaming + ispezione
+    token), ma con i controlli sostituiti: 9 assi in 3 famiglie, barre A↔B,
+    simbolo per le avanzate, equalizzatore per-layer. Nessuna dashboard di
+    ricerca: l'utente ha chiesto un chatbot con steering, non un laboratorio.
+
+================================================================================
+2. MAPPA DEI FILE
+================================================================================
+steerlab-colab/
+  builder.txt              questo file
+  README.md                istruzioni per l'umano (avvio Colab, git, condivisione)
+  GIT_GUIDE.md             git passo-passo per chi non l'ha mai usato
+  requirements.txt         dipendenze (torch, transformers, fastapi, uvicorn, ...)
+  config.json              model_id, load_4bit, device, porta, families
+  engine.py                runtime: caricamento, hook, steering per-layer, chat
+  axes.py                  definizione delle 9 famiglie/assi + coppie contrastive
+  calibrate.py             calibrazione a posteriori: direzioni per layer,
+                           estremi ottimali, equalizzatore
+  battery.py               probe di valutazione (per calibrare e verificare)
+  server.py                FastAPI: /api/state, /api/axes, /api/chat/stream, ...
+  app.py                   entrypoint: uvicorn + tunnel opzionale
+  colab.ipynb              notebook pronto per Colab
+  static/index.html        UI
+  static/styles.css
+  static/app.js            chat, streaming, token popover
+  static/axes.js           barre, avanzate, equalizzatore
+  calibration/calibration.json   estremi + profilo equalizzatore + metriche
+  calibration/directions.npz     direzioni per layer (assi, layer, hidden)
+  .gitignore
+
+================================================================================
+3. MODELLO DATI
+================================================================================
+3.1 ASSI (axes.py)
+    Ogni asse ha:
+      key         stringa stabile, usata dall'API (es. "concision")
+      family      "style" | "emotion" | "mode"
+      left        etichetta del polo sinistro (barra a -1)
+      right       etichetta del polo destro (barra a +1)
+      pairs       lista di coppie minime {a, b}; a corrisponde a LEFT, b a RIGHT
+      probes      lista di {prompt, pos[], neg[]} per la valutazione
+      note        eventuale avvertenza metodologica
+
+    Regola d'oro (imparata sul campo, non negoziabile):
+      nei minimal pair il TOKEN FINALE deve essere IDENTICO nei due poli.
+      Se la parola-bersaglio sta in fondo, l'ultimo hidden state codifica
+      "cosa segue quella parola", non la parola: la direzione si inverte.
+      Esempio documentato: "The queen"/"The king" → 0/8 probe, Δ −5.2.
+      Con "The queen rules the kingdom"/"The king rules the kingdom" → 6/8.
+
+3.2 FAMIGLIE E ASSI (9)
+    STILE
+      concision   conciso ↔ prolisso
+      formality   informale ↔ formale
+      register    tradizionale ↔ slang tecnico
+    EMOZIONI
+      calm        tranquillo ↔ aggressivo
+      optimism    pessimista ↔ ottimista
+      playfulness serio ↔ divertito
+    MODALITÀ
+      creativity  convenzionale ↔ creativo
+      compliance  refrattario ↔ obbediente
+      sycophancy  critico ↔ sicofante
+
+3.3 CALIBRAZIONE (calibration/calibration.json)
+    {
+      "model_id": "...",
+      "n_layers": 28,
+      "hidden": 1536,
+      "created": "2026-11-10T...",
+      "axes": {
+        "concision": {
+          "left_label": "conciso", "right_label": "prolisso",
+          "extreme_left": 0.42,     # intensità α al valore -1 della barra
+          "extreme_right": 0.58,    # intensità α al valore +1 (asimmetrica)
+          "profile": [0.0, 0.1, ... 1.0],   # equalizzatore, n_layers valori 0..1
+          "profile_default": [...],         # copia del profilo calibrato
+          "metrics": {
+             "win_left": 7, "win_right": 8, "n_probes": 8,
+             "delta_left": -0.71, "delta_right": 0.83,
+             "null_ratio": 6.2,
+             "layer_scores": [...],           # efficienza misurata per layer
+             "kl_per_layer": [...],
+             "method": "efficiency-weighted allocation with KL budget"
+          }
+        }, ...
+      }
+    }
+    Se il file manca o non corrisponde al modello, l'app usa i valori di
+    `calibration/fallback.json` (misurati su SmolLM2-360M, scalati per
+    profondità) e lo dichiara in UI ("calibrazione: fallback, non misurata").
+
+3.4 DIREZIONI (calibration/directions.npz)
+    Chiavi: "axes" -> array (n_axes, n_layers, hidden) float32 unitario per layer.
+    Costruito da calibrate.py. Se manca, l'app costruisce al volo la direzione
+    al layer centrale (più lento al primo uso, ma funziona).
+
+================================================================================
+4. METODO (la parte che conta)
+================================================================================
+4.1 DA DUE PROMPT A UNA DIREZIONE
+    d_l = mean_i( h_l(a_i) − h_l(b_i) )      (differenze APPAIATE, non medie)
+    con h_l = residual stream DOPO il blocco l, all'ultimo token del prompt,
+    e i prompt formattati ESATTAMENTE come in inferenza (chat template).
+    Perché appaiate: dentro ogni coppia si cancellano sintassi, lunghezza,
+    argomento e formato; resta l'asse. La media delle differenze ha varianza
+    molto minore della differenza delle medie.
+    Qualità: stabilità leave-one-out (coseno fra la direzione completa e quella
+    costruita senza una coppia) e allineamento minimo (tutte le coppie devono
+    spingere nello stesso verso). Se min_alignment < 0.2 la direzione è sospetta.
+
+4.2 PERCHÉ UNA DIREZIONE PER LAYER
+    Le direzioni non sono trasferibili fra layer: lo spazio cambia con la
+    profondità. L'equalizzatore richiede un vettore per ogni layer, quindi
+    calibrate.py costruisce la matrice (n_assi, n_layer, hidden).
+
+4.3 ESTREMI DELLA BARRA (a posteriori, non simmetrici)
+    Per ogni asse si cerca l'α che massimizza l'effetto comportamentale senza
+    degenerare. Procedura:
+      a) per α in una griglia (0.05 .. 0.9) misura il margine medio sui probe
+         (readout teacher-forced: log p(target_left) − log p(target_right));
+      b) misura la KL media sulla distribuzione del primo token rispetto a
+         baseline (costo) e la frazione di probe che peggiorano (degenerazione);
+      c) estremo = il più grande α con win_rate ≥ 0.75 e KL ≤ budget
+         (budget = 1.0 nat, configurabile) e nessuna degenerazione > 20%;
+         se nessun α passa, si prende quello con il miglior rapporto
+         effetto/costo e lo si marca `weak: true`.
+    Gli estremi sinistro e destro sono calcolati SEPARATAMENTE (l'effetto non è
+    simmetrico): è il motivo per cui la barra può avere estremi diversi.
+    Il valore mostrato all'utente è α, non una percentuale arbitraria.
+
+4.4 EQUALIZZATORE: come si trova lo spettro migliore
+    Il problema: distribuire un budget di intervento fra i layer per massimizzare
+    l'effetto a parità di costo (KL). Non è "a tentativi": è un'allocazione
+    misurata con un criterio esplicito.
+    Metodo implementato (e documentato come tale):
+      1. per ogni layer l si misura, con lo stesso set di probe:
+           g_l = Δmargine per unità di α al layer l        (guadagno)
+           c_l = KL per unità di α al layer l              (costo)
+         con α piccolo (0.1) per restare nel regime lineare;
+      2. efficienza e_l = max(g_l, 0) / (c_l + ε);
+      3. allocazione greedy con budget: si parte da profilo nullo e si aggiunge
+         budget al layer con e_l più alto, poi si ricalcola il guadagno
+         marginale (i layer saturano), fino a esaurire il budget o a 8 passi;
+      4. normalizzazione: profilo / max(profilo) → valori in [0,1]; il layer
+         migliore vale 1.0, gli altri in proporzione.
+    Riferimenti accademici (implementati come criterio, non citati a caso):
+      - ITI (Li et al., 2023): seleziona layer/head per ACCURATEZZA di probe e
+        interviene solo sui migliori; qui l'analogo è e_l stimato sui probe.
+      - CAA (Rimsky et al., 2023): il layer scelto conta più dell'ampiezza;
+        conferma che un profilo per-layer non è cosmetico.
+      - Steering con vincolo di KL: allocare l'intervento massimizzando
+        l'effetto sotto un budget di divergenza è un problema di allocazione
+        convessa; il greedy con rendimenti decrescenti ne è l'approssimazione
+        pratica e verificabile.
+      - Il profilo è validato: si confronta il margine ottenuto con profilo
+        calibrato vs profilo piatto (stesso budget) sui probe tenuti fuori.
+        Se il profilo non batte il piatto, si usa il piatto (onestà > estetica).
+    L'utente può modificare l'equalizzatore: i valori sono moltiplicatori 0..1
+    applicati all'α dell'asse. Il default è il profilo calibrato.
+
+4.5 APPLICAZIONE NELL'HOOK
+    Per ogni asse attivo con valore di barra v ∈ [-1,1] e profilo p_l:
+        α_asse = (v >= 0 ? v * extreme_right : v * extreme_left)
+        per ogni layer l:  h_l += α_asse * p_l * resid_norm_l * d_l
+    Nota: `extreme_left` è già negativo o positivo? Convenzione: entrambi gli
+    estremi sono POSITIVI e il segno viene da v. `extreme_left` è il modulo.
+    L'equalizzatore è un moltiplicatore, non un secondo α.
+
+================================================================================
+5. API
+================================================================================
+GET  /api/state          -> {model_id, device, quantized, n_layers, hidden,
+                             calibration: "measured"|"fallback"|"none"}
+GET  /api/axes           -> [{key,family,left,right,extreme_left,extreme_right,
+                              profile, metrics}]
+POST /api/axes/profile   {key, profile[]} -> salva il profilo in memoria (non su
+                             disco: è una sessione; il default è calibrato)
+POST /api/chat/stream    SSE. Body: {history[], message, axes:{key:v}, max_new,
+                             temperature}. Eventi: start, token*, done.
+                             Ogni token: {i,id,text,special,p,rank,top[5]}.
+POST /api/chat           stessa cosa non-streaming (per test/CLI)
+POST /api/calibrate      {axes?, layers?, budget_kl?} -> ricalcola e scrive
+                             calibration.json (usato dal notebook Colab)
+GET  /api/health
+
+================================================================================
+6. UI (static/)
+================================================================================
+Layout a due colonne:
+  SINISTRA (300px): 9 barre raggruppate in 3 famiglie.
+    Ogni riga: [simbolo ◈] [etichetta sinistra] [====slider====] [etichetta
+    destra] [valore numerico]. Default 0. Il simbolo apre un pannello modale:
+      - estremi modificabili (due numeri, default calibrati)
+      - equalizzatore: una barra verticale per layer, trascinabile, default =
+        profilo calibrato; pulsanti "calibrato" / "piatto" / "azzera"
+      - metriche della calibrazione (win rate, Δ, KL, metodo)
+    Il valore numerico mostrato è α effettivo = v * estremo.
+  DESTRA: chat con streaming e ispezione token (hover evidenzia, click mostra
+    i 5 token più probabili in quel punto). Barra di stato con KL, entropia,
+    assi attivi.
+
+Simbolo scelto: "◈" (già usato come marchio) oppure "⌁". Requisito: deve
+essere un glifo Unicode presente nei font di sistema, senza immagini esterne.
+
+================================================================================
+7. COLAB (colab.ipynb)
+================================================================================
+Celle:
+  1. `!nvidia-smi` e controllo GPU.
+  2. clonazione del repo privato. Serve un token GitHub (PAT) salvato nei Secret
+     di Colab come `GH_TOKEN`; la cella fa:
+       !git clone https://$GH_TOKEN@github.com/<utente>/<repo>.git
+     ISTRUZIONE PER L'UTENTE: creare il PAT con scope `repo`, salvarlo nei
+     Secret di Colab. Senza token il repo privato non si clona.
+  3. `pip install -r requirements.txt` (+ bitsandbytes, accelerate).
+  4. (opzionale) `python calibrate.py --model ...` se si vuole ricalibrare.
+  5. `python app.py --tunnel` → stampa l'URL pubblico.
+  Nota: su Colab il filesystem è effimero; ogni sessione riscarica il modello
+  (~1 min). La calibrazione è nel repo, quindi non va rifatta.
+
+================================================================================
+8. GIT
+================================================================================
+Repo privato. `.gitignore` esclude: modelli, cache, __pycache__, .ipynb_checkpoints,
+calibration/*.npz se troppo grande (ma 1-2 MB va bene, va committato).
+Passi per l'utente in GIT_GUIDE.md: installare git, `git init`, `git add`,
+`git commit`, creare repo su GitHub, `git remote add origin`, `git push`.
+Autenticazione: HTTPS + PAT (consigliato a un principiante) oppure GitHub CLI.
+L'agente NON può fare login al posto dell'utente: quando serve, l'utente deve
+eseguire `gh auth login` o incollare un PAT.
+
+================================================================================
+9. TEST
+================================================================================
+- `python -m pytest` non necessario: test funzionali in `selftest.py` (da creare
+  se serve) o script `--selftest` in app.py:
+    * /api/health, /api/axes, /api/state
+    * chat streaming: i token arrivano in modo incrementale
+    * con barra a 0 la risposta coincide con quella senza steering (KL ≈ 0)
+    * con barra a +1 la distribuzione cambia (KL > 0) e il margine si muove
+      nel verso atteso
+    * equalizzatore: profilo piatto vs calibrato, stesso budget
+- In locale si testa con SmolLM2-360M su CPU (lento ma sufficiente).
+
+================================================================================
+10. LOG DI COSTRUZIONE (aggiornare SEMPRE, in ordine cronologico)
+================================================================================
+[2026-11-09 23:40] P0 — pianificazione scritta. Deciso: Qwen3-1.7B 4-bit su
+  Colab, fallback Qwen2.5-1.5B; pesi scaricati a runtime (GitHub: limite 100 MB
+  per file, LFS 1 GB); 9 assi in 3 famiglie; estremi asimmetrici calibrati;
+  equalizzatore per-layer con allocazione efficienza/budget KL; UI a 9 barre +
+  modale avanzate; APP locale separata con avvio manuale.
+  PROSSIMO: P1 = axes.py, engine.py, calibrate.py.
+
+[2026-11-10 00:20] P1 — motore, assi, calibrazione.
+  axes.py: 9 assi in 3 famiglie, 6 coppie minime ciascuno con TOKEN FINALE
+  IDENTICO, 8 probe per asse. readout: "margin" (continuazioni teacher-forced)
+  per 8 assi, "length" per concision (un margine sul prossimo token non cattura
+  la sintesi). Verificato: 9 assi x 6 coppie x 8 probe.
+  engine.py: caricamento 4-bit (bnb nf4, device_map auto) o fp32 CPU; direzioni
+  (A,L,H) da npz con mappatura PER NOME (order); fallback: una direzione al layer
+  centrale replicata; profilo di default a banda gaussiana (centro 60%, sigma
+  12%) perché il piatto su tutti i layer degenera; hook con somma per layer e
+  normalizzazione del profilo a SOMMA 1 (α = budget totale); streaming con
+  metadati per token (p, rank, top-5); chat template con enable_thinking=False.
+  calibrate.py: direzioni per layer; per ogni layer guadagno (margine) e costo
+  (KL) a α=0.12; efficienza; allocazione greedy con rendimenti decrescenti;
+  estremi separati con sweep di α e budget KL; validazione profilo vs piatto;
+  scrive calibration.json + directions.npz (con order e resid_norm).
+  Test CPU (SmolLM2-360M, 2 assi): load 57 s, barra 0 -> KL 0.000, +0.5 -> 0.048,
+  +0.9 -> 0.162, -0.5 -> 0.030, testo coerente. Calibrazione quick (calm):
+  estremi 0.60/0.60, profilo max 1.0, guadagno cal 0.495 vs piatto 0.497.
+
+[2026-11-10 00:40] P2 — server, UI, notebook.
+  server.py: /api/state (con effective_model e calibration_matches),
+  /api/axes, /api/axes/profile, /api/axes/extremes, /api/chat/stream (SSE),
+  /api/chat, /api/calibrate, /api/log. Errori sempre JSON.
+  static/: index.html con 3 famiglie, 9 righe [◈ | polo sx | slider | polo dx |
+  valore α]; modale con estremi + equalizzatore canvas trascinabile + pulsanti
+  calibrato/piatto/azzera/applica + metriche; chat con streaming e popover
+  top-5 al click sul token; strip con KL, token, ms, assi attivi.
+  app.py: uvicorn + tunnel cloudflared opzionale, stampa il link pubblico.
+  colab.ipynb: 9 celle (GPU, clone con GH_TOKEN, dipendenze, calibrazione,
+  avvio+tunnel, load modello, download calibrazione).
+  README.md e GIT_GUIDE.md per l'utente.
+  Bug corretti: '$' dichiarato in due script (rinominato in axes.js); attesa
+  di un elemento nascosto nel test; etichetta modello con path completo;
+  serializzazione di dict_keys in /api/axes.
+  Test UI (Chrome headless, 9 passi): 9 assi/3 famiglie, chat a barre zero KL
+  0.000, slider +0.85 -> α +0.30, chat con steering KL 0.037, modale con
+  equalizzatore, drag+apply, azzera -> 0.00. 0 errori console.
+  Calibrazione di test (SmolLM) RIMOSSA dal repo: il repo è per Qwen3-1.7B e
+  una calibrazione di un altro modello sarebbe un mismatch silenzioso.
+
+[2026-11-10 00:55] P3 — APP locale, git.
+  APP/ (fuori dal repo, nella radice del progetto): index.html che interroga
+  /api/health e mostra acceso/spento, AVVIA.bat (avvia app_steer e apre la
+  pagina), FERMA.bat, LEGGIMI.txt. Verificato: a motore spento dice "spento" e
+  disabilita il pulsante; a motore acceso dice "attivo" e abilita il link.
+  Aggiunto CORS al server locale per la fetch da file://.
+  git init + primo commit del repo. Il push su GitHub richiede il PAT dell'utente
+  (l'agente non può autenticarsi): vedi GIT_GUIDE.md.
+
+[FASI SUCCESSIVE: DA COMPILARE]
+================================================================================

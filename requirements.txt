@@ -1,0 +1,9 @@
+# Colab: GPU T4/L4. In locale su CPU funziona con STEERLAB_MODEL_ID piccolo.
+torch>=2.3
+transformers>=4.51
+accelerate>=0.33
+numpy>=1.26
+fastapi>=0.110
+uvicorn[standard]>=0.29
+# 4-bit su GPU (Linux/Colab). Su Windows/Mac viene ignorato.
+bitsandbytes>=0.43; platform_system == "Linux"
