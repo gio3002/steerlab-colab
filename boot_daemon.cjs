@@ -64,14 +64,27 @@ function status(phase, extra) {
   const ctx = await chromium.launchPersistentContext(UD, {
     headless: false,
     executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+    // Google rifiuta il login nei browser con --enable-automation.
+    ignoreDefaultArgs: ['--enable-automation'],
     args: ['--no-first-run', '--no-default-browser-check',
-           '--no-proxy-server', '--proxy-bypass-list=*'],
+           '--no-proxy-server', '--proxy-bypass-list=*',
+           '--disable-blink-features=AutomationControlled',
+           '--disable-features=ChromeWhatsNewUI'],
     viewport: { width: 1320, height: 900 }
   });
   const p = ctx.pages()[0] || await ctx.newPage();
   p.setDefaultTimeout(20000);
 
+  // Chrome, con un profilo nuovo, apre da solo una scheda di "Sign in to Chrome"
+  // (accounts.google.com/.../chrome/sync). Non c'entra con Colab e Google la
+  // rifiuta: chiudiamola e restiamo solo sulla pagina web di Colab.
   await p.goto('https://colab.research.google.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  for (const t of ctx.pages()) {
+    if (t !== p && /accounts\.google\.com/.test(t.url())) {
+      await t.close().catch(() => {});
+    }
+  }
+  await p.bringToFront();
 
   // ---- attesa login (max 45 min) -----------------------------------------
   let logged = false;
