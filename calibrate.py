@@ -141,6 +141,12 @@ def calibrate(axes_keys: list[str], layer_stride: int, alphas: list[float],
               quick: bool) -> dict:
     eng = Engine()
     log(f"carico {eng.cfg['model_id']} (4bit={eng.cfg.get('load_4bit')})")
+    import torch
+    gpu = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
+    print(f"[preflight] torch {torch.__version__} | {gpu}", flush=True)
+    print(f"[preflight] 4bit richiesto={eng.cfg.get('load_4bit')} | "
+          f"bitsandbytes_ok={eng._bnb_ok()} -> il motore sceglie da solo il dtype",
+          flush=True)
     eng.load()
     log(f"modello pronto in {eng.load_seconds}s · {eng.n_layers} layer · {eng.hidden} dim")
     L = eng.n_layers

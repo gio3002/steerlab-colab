@@ -395,5 +395,32 @@ eseguire `gh auth login` o incollare un PAT.
   stare in una struttura DIVERSA dalla cache dei valori misurati, altrimenti la
   calibrazione si auto-inganna.
 
+[2026-11-10 18:47] ERRORE SU COLAB — bitsandbytes mancante, e 4-bit NON necessario.
+  Sintomo: ImportError "Using bitsandbytes 4-bit quantization requires
+  bitsandbytes >= 0.46.1" durante calibrate.py -> eng.load(). In una sessione
+  precedente bitsandbytes c'era (modello caricato in 57s); in una VM fresca no:
+  `pip -q install -r requirements.txt` falliva in silenzio e il notebook
+  continuava. Errore di progettazione: avevo reso OBBLIGATORIA una dipendenza
+  opzionale.
+  Fix (strutturale, non cerotto):
+   1. requirements.txt: bitsandbytes RIMOSSO. Nessuna dipendenza che puo'
+      mancare su Python 3.13/Colab puo' bloccare l'avvio.
+   2. engine.load(): il 4-bit si tenta SOLO se _bnb_ok() (import + versione
+      >= 0.46.1) e comunque dentro try/except; in caso di fallimento si
+      ricarica in fp16/bf16. dtype: fp32 CPU, bf16 se capability >= 8 (Ampere+),
+      fp16 su Turing/T4. Qwen3-1.7B in fp16 = ~3.4 GB contro 16 GB di T4.
+   3. state() espone load_note e load_warning; log "[engine] modalita: ...".
+   4. calibrate.py: PREFLIGHT stampa torch/GPU/bnb prima di caricare.
+   5. colab.ipynb cella 2: installazione con diagnostica, PREFLIGHT esplicito;
+      cella 3: calibrazione IDEMPOTENTE (salta se calibration.json esiste gia'
+      per lo stesso modello) -> i Run all successivi non rifanno 10 minuti;
+      cella 4: pkill dell'avvio precedente, e se il tunnel non parte stampa
+      app.log invece di un messaggio generico.
+  Verifica locale (SmolLM2-360M, CPU): _bnb_ok()=False, load 14s,
+  "[engine] modalita: float32 su cpu", direzione force ok, chat KL 0.0.
+  REGOLA: su Colab ogni dipendenza opzionale va rilevata PRIMA del download del
+  modello e deve avere un ripiego silenzioso; mai far fallire la calibrazione
+  per un'ottimizzazione.
+
 [FASI SUCCESSIVE: DA COMPILARE]
 ================================================================================

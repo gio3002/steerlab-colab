@@ -15,6 +15,7 @@ import gc
 import hashlib
 import json
 import math
+import re
 import os
 import threading
 import time
@@ -92,6 +93,8 @@ class Engine:
             "model_dir": self.cfg.get("model_dir"),
             "device": self.device,
             "quantized": self.quantized,
+            "load_note": getattr(self, "load_note", None),
+            "load_warning": getattr(self, "last_error", None),
             "n_layers": self.n_layers,
             "hidden": self.hidden,
             "loaded": self.model is not None,
@@ -146,6 +149,17 @@ class Engine:
             self.dir_order = []
 
     # ---------------------------------------------------------- caricamento
+    @staticmethod
+    def _bnb_ok() -> bool:
+        """True solo se bitsandbytes esiste ed e' >= 0.46.1 (minimo transformers)."""
+        try:
+            import bitsandbytes as bnb
+        except Exception:
+            return False
+        nums = [int(x) for x in re.findall(r"\d+", str(getattr(bnb, "__version__", "0")))[:3]]
+        nums += [0] * (3 - len(nums))
+        return tuple(nums) >= (0, 46, 1)
+
     def load(self) -> dict:
         if self.model is not None:
             return self.state()
@@ -171,19 +185,39 @@ class Engine:
             tok = AutoTokenizer.from_pretrained(mid, trust_remote_code=True)
             if tok.pad_token_id is None:
                 tok.pad_token = tok.eos_token
-            kw = {"trust_remote_code": True}
-            if self.cfg.get("load_4bit") and self.device == "cuda":
-                from transformers import BitsAndBytesConfig
-                kw["quantization_config"] = BitsAndBytesConfig(
-                    load_in_4bit=True, bnb_4bit_quant_type="nf4",
-                    bnb_4bit_compute_dtype=torch.bfloat16,
-                    bnb_4bit_use_double_quant=True)
-                kw["device_map"] = "auto"
-                kw["torch_dtype"] = torch.bfloat16
-                self.quantized = True
+            # dtype: fp32 CPU, bf16 Ampere+, fp16 Turing (T4). Il 4-bit e'
+            # OPZIONALE: su T4 un 1.7B in fp16 occupa ~3.4 GB su 16 GB di VRAM.
+            if self.device == "cpu":
+                dtype = torch.float32
             else:
-                kw["torch_dtype"] = torch.float32 if self.device == "cpu" else torch.float16
-            model = AutoModelForCausalLM.from_pretrained(mid, **kw)
+                cap = torch.cuda.get_device_capability(0)[0] if self.device == "cuda" else 0
+                dtype = torch.bfloat16 if cap >= 8 else torch.float16
+            self.quantized = False
+            self.load_note = f"{str(dtype).replace('torch.', '')} su {self.device}"
+            kw = {"trust_remote_code": True, "torch_dtype": dtype}
+            model = None
+            want4 = bool(self.cfg.get("load_4bit")) and self.device == "cuda"
+            if want4 and self._bnb_ok():
+                try:
+                    from transformers import BitsAndBytesConfig
+                    kw4 = dict(kw)
+                    kw4["quantization_config"] = BitsAndBytesConfig(
+                        load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                        bnb_4bit_compute_dtype=dtype,
+                        bnb_4bit_use_double_quant=True)
+                    kw4["device_map"] = "auto"
+                    model = AutoModelForCausalLM.from_pretrained(mid, **kw4)
+                    self.quantized = True
+                    self.load_note = "4bit NF4 (bitsandbytes)"
+                except Exception as e:
+                    self.last_error = f"4bit non riuscito ({e}); ripiego su {dtype}"
+                    self.quantized = False
+                    model = None
+            elif want4:
+                self.last_error = ("bitsandbytes assente o < 0.46.1: "
+                                   "uso fp16/bf16, nessun problema")
+            if model is None:
+                model = AutoModelForCausalLM.from_pretrained(mid, **kw)
             if not self.quantized:
                 model.to(self.device)
             model.eval()
@@ -191,6 +225,7 @@ class Engine:
             self._find_blocks()
             self._find_head()
             self.load_seconds = round(time.time() - t0, 2)
+            print(f"[engine] modalita: {self.load_note}", flush=True)
             if self.dirs is None:
                 self._build_all_directions()
             # Per gli assi senza direzioni nel file di calibrazione: una direzione

@@ -1,9 +1,12 @@
-# Colab: GPU T4/L4. In locale su CPU funziona con STEERLAB_MODEL_ID piccolo.
+# Dipendenze minime. TUTTO quello che serve per girare su Colab T4.
 torch>=2.3
 transformers>=4.51
 accelerate>=0.33
 numpy>=1.26
 fastapi>=0.110
 uvicorn[standard]>=0.29
-# 4-bit su GPU (Linux/Colab). Su Windows/Mac viene ignorato.
-bitsandbytes>=0.43; platform_system == "Linux"
+# NOTA: bitsandbytes NON e' richiesto. Il motore prova il 4-bit solo se il
+# pacchetto c'e' ed e' >= 0.46.1; altrimenti carica in fp16/bf16 e continua.
+# Su Python 3.13 / Colab l'installazione di bitsandbytes a volte fallisce:
+# non deve mai bloccare l'avvio. Per abilitarlo a mano (GPU Ampere+):
+#   !pip install -U "bitsandbytes>=0.46.1"
