@@ -77,6 +77,13 @@ status('chiave_sessione', { key: KEY.slice(0, 8) + '...' });
   // ---- upload diretto, con retry se Colab chiede il login ----------------
   let uploaded = false;
   for (let attempt = 0; attempt < 60 && !uploaded; attempt++) {
+    // Se un notebook e' gia' aperto (caricato dal demone O a mano dall'umano),
+    // il menu "Runtime" esiste: esci dal loop e prosegui. E' la via di uscita
+    // garantita, senza interpretare testi di login.
+    const body = await p.evaluate(() => document.body.innerText.slice(0, 4000)).catch(() => '');
+    if (/\bRuntime\b/.test(body) && /Connect|Ram|Disk|Ctrl|Edit|View|Insert/i.test(body)) {
+      uploaded = true; status('notebook_aperto'); break;
+    }
     // Strategia A: il pulsante apre un selettore file nativo.
     // Strategia B: apre un dialogo con <input type=file> nascosto.
     const fc = p.waitForEvent('filechooser', { timeout: 9000 }).catch(() => null);
