@@ -19,6 +19,7 @@ import traceback
 import hmac
 
 from fastapi import Body, FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -40,6 +41,10 @@ print(f"[admin] DEPLOY_KEY={DEPLOY_KEY}", flush=True)
 ADMIN_ON = os.environ.get("STEERLAB_ADMIN", "1") not in ("0", "false", "")
 
 app = FastAPI(title="STEERLAB COLAB", docs_url=None, redoc_url=None)
+# open.html puo' essere aperto come file:// o da GitHub Pages: senza CORS il
+# browser bloccherebbe il controllo /api/health. Solo lettura, nessun cookie.
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
+                   allow_headers=["*"])
 
 
 def _log(where: str, exc: BaseException):

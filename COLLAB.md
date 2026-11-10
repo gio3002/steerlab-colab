@@ -6,6 +6,45 @@
 > in una nuova chat alla cartella GitHub e possono non solo eseguire ma anche
 > andare avanti col progetto, cambiare il codice. Ma solo chi ha il permesso.»
 
+## Workflow automatico per un amico (il caso d'uso richiesto)
+
+> «Gli mando solo il link del repo. Lo seleziona come workspace in una nuova
+> chat WorkBuddy, clicca il file di apertura, e poi l'agente fa tutto.»
+
+Catena reale, senza condivisione di cartelle locali:
+
+1. Il titolare aggiunge l'amico come collaboratore **Write** (vedi sotto).
+2. L'amico apre una **nuova chat WorkBuddy** e seleziona il repo GitHub come
+   workspace. Se WorkBuddy gli offre solo una vista remota senza file locali,
+   l'agente deve come prima azione clonare il repo dentro il workspace
+   (`git clone https://github.com/gio3002/steerlab-colab.git`): gli serve
+   `AGENT.md`, `START.ipynb` e `control.json` sul filesystem.
+3. L'amico dice una sola frase: **«apri l'app e continua il progetto»**.
+4. L'agente legge `AGENT.md` e:
+   - controlla `control.json` e fa `Remote.from_control().ping()`;
+   - se la sessione Colab è morta, usa l'automazione browser per caricare
+     `START.ipynb`, scegliere T4, eseguire l'unica cella e leggere `LINK`/`CHIAVE`;
+   - aggiorna `control.json`;
+   - `R.sync()` allinea il workspace alla VM;
+   - da qui modifica codice, lancia esperimenti, legge i risultati, committa.
+5. `open.html` è la pagina di apertura per l'umano: verifica da sola se l'app è
+   online e offre il pulsante. Non è obbligatoria se c'è l'agente.
+
+**Nessun click dopo il primo avvio.** L'unica azione umana inevitabile è la
+prima connessione a Colab (Google richiede un browser loggato); anche quella
+può essere eseguita dall'agente tramite automazione browser sul profilo
+dell'utente. Se l'agente non ha strumenti browser, chiede una sola volta di
+incollare `LINK` e `CHIAVE`.
+
+### Perché il link del tunnel cambia (e come renderlo fisso)
+
+I quick tunnel Cloudflare generano un URL casuale a ogni avvio. `START.ipynb`
+lo scrive in `control.json`, quindi l'agente lo aggiorna in autonomia. Per un
+link **permanente** (così `open.html` non cambia mai): creare un tunnel
+nominato gratuito in Cloudflare Zero Trust, mettere il token nel Secret Colab
+`CLOUDFLARE_TUNNEL_TOKEN` e l'URL in `config.json` → `public_url`. `app.py`
+usa già quel percorso e ha un watchdog che riavvia `cloudflared` se cade.
+
 ## La risposta breve
 
 **Sì, e non serve nessun plugin.** I permessi li gestisce GitHub, non WorkBuddy.

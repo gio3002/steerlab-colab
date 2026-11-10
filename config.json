@@ -4,5 +4,6 @@
  "device": "auto",
  "port": 7860,
  "default_extreme": 0.35,
- "max_new_default": 96
+ "max_new_default": 96,
+ "public_url": ""
 }

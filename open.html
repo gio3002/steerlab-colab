@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STEERLAB · apri l'app</title>
+<style>
+  :root{--bg:#0a0f16;--panel:#101822;--line:#22303f;--text:#dbe7f3;--muted:#7f95ad;
+        --accent:#4fd1c5;--ok:#6fe3a0;--err:#ff5f6d;
+        --mono:ui-monospace,Consolas,monospace;--sans:system-ui,"Segoe UI",Roboto,sans-serif}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 50% 0%,#12202c,#080d13 70%);
+       color:var(--text);font-family:var(--sans);display:flex;align-items:center;justify-content:center;padding:20px}
+  .card{width:min(680px,94vw);background:#0e1823ee;border:1px solid var(--line);
+        border-radius:14px;padding:28px;box-shadow:0 30px 80px #000a}
+  h1{font-family:var(--mono);font-size:18px;letter-spacing:2px;margin:0 0 4px}
+  h1 span{color:var(--accent)}
+  .sub{color:var(--muted);font-size:12px;margin-bottom:22px;line-height:1.6}
+  .state{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:9px;
+         border:1px solid var(--line);background:#0a121d;font-family:var(--mono);font-size:12px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--err);flex:none}
+  .state.on .dot{background:var(--ok);box-shadow:0 0 10px var(--ok)}
+  .state.wait .dot{background:#ffd166}
+  .actions{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
+  a.btn,button.btn{display:inline-flex;align-items:center;gap:8px;text-decoration:none;
+       background:#11454b;border:1px solid #2a8c99;color:#c9f7fb;padding:12px 20px;
+       border-radius:8px;font-weight:700;font-size:13px;cursor:pointer}
+  a.btn:hover,button.btn:hover{background:#185a63}
+  a.btn.disabled{opacity:.4;pointer-events:none}
+  .ghost{background:#1b2a3a;border-color:var(--line);color:var(--text)}
+  .steps{margin-top:22px;font-size:12px;color:var(--muted);line-height:1.75}
+  .steps b{color:var(--text)}
+  code{font-family:var(--mono);background:#0a121d;border:1px solid var(--line);
+       padding:1px 5px;border-radius:4px;font-size:11px}
+  .note{margin-top:16px;padding:10px 12px;border-left:2px solid var(--accent);
+        background:#0c1a22;font-size:11.5px;color:#b9cbdd;line-height:1.6}
+  .url{font-family:var(--mono);font-size:11px;color:var(--accent);word-break:break-all}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>◈ STEER<span>LAB</span></h1>
+  <div class="sub">chat con vector steering · 9 assi · equalizzatore per layer · GPU Colab</div>
+
+  <div id="state" class="state wait"><span class="dot"></span><span id="txt">verifico se l'app è online…</span></div>
+  <div class="actions">
+    <a id="open" class="btn disabled" href="#" target="_blank">APRI L'APP →</a>
+    <a id="colab" class="btn ghost" href="https://colab.research.google.com/" target="_blank">avvia / riprendi GPU</a>
+    <button id="copy" class="btn ghost" title="copia l'istruzione per il tuo agente">copia istruzione agente</button>
+  </div>
+
+  <div class="note" id="agentnote">
+    <b>Se usi WorkBuddy:</b> non fare nulla. Scrivi in chat
+    <code>apri l'app e continua il progetto</code>: l'agente legge
+    <code>AGENT.md</code>, avvia Colab da solo, aggiorna
+    <code>control.json</code> e poi modifica il codice ed esegue gli esperimenti
+    senza chiederti altri click.
+  </div>
+
+  <div class="steps">
+    <b>Come funziona.</b> Il modello non gira su questo PC: gira su una GPU
+    gratuita di Google Colab. Il link dell'app cambia solo quando la sessione
+    Colab si spegne (Colab free si scollega dopo un po' di inattività).<br>
+    <b>Se il pallino è rosso:</b> clicca <b>avvia / riprendi GPU</b>, carica
+    <code>START.ipynb</code> da questa cartella, scegli <b>T4 GPU</b> e premi
+    <code>Ctrl+F9</code>. In fondo alla cella compaiono <b>LINK</b> e
+    <b>CHIAVE</b>: incollali qui sotto, oppure lascia fare al tuo agente.<br>
+    <span class="url" id="cur"></span>
+  </div>
+</div>
+
+<script>
+  const REPO = 'https://github.com/gio3002/steerlab-colab';
+  const st = document.getElementById('state');
+  const txt = document.getElementById('txt');
+  const open = document.getElementById('open');
+  const cur = document.getElementById('cur');
+  const AGENT_PROMPT = 'Apri l\'app e continua il progetto: leggi AGENT.md, avvia START.ipynb su Colab T4 se serve, aggiorna control.json e procedi in autonomia.';
+
+  document.getElementById('copy').onclick = () => {
+    navigator.clipboard.writeText(AGENT_PROMPT).then(
+      () => { document.getElementById('copy').textContent = 'copiato ✓'; },
+      () => { document.getElementById('agentnote').style.borderColor = '#ffd166'; });
+  };
+
+  // L'URL può arrivare da: control.json (stesso server), ?app=..., oppure
+  // dall'ultimo valore salvato nel browser.
+  const q = new URLSearchParams(location.search).get('app');
+  let url = q || localStorage.getItem('steerlab_url') || '';
+
+  async function check() {
+    if (url) {
+      try {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 4000);
+        const r = await fetch(url.replace(/\/$/, '') + '/api/health',
+                              { signal: c.signal, cache: 'no-store' });
+        clearTimeout(t);
+        const j = await r.json();
+        if (j && j.ok) {
+          st.className = 'state on';
+          txt.textContent = 'app online · GPU attiva';
+          open.classList.remove('disabled');
+          open.href = url;
+          cur.textContent = url;
+          localStorage.setItem('steerlab_url', url);
+          return;
+        }
+      } catch (e) {}
+    }
+    st.className = 'state';
+    txt.textContent = 'app offline — avvia la GPU (o dillo al tuo agente)';
+    open.classList.add('disabled');
+    cur.textContent = url ? 'ultimo link: ' + url : 'nessun link salvato';
+  }
+
+  // Se control.json è servito insieme a questa pagina, lo usa automaticamente.
+  if (!url) {
+    fetch('control.json', {cache:'no-store'})
+      .then(r => r.ok ? r.json() : null)
+      .then(j => { if (j && j.app_url) { url = j.app_url; check(); } })
+      .catch(() => {});
+  }
+  check();
+  setInterval(check, 8000);
+</script>
+</body>
+</html>

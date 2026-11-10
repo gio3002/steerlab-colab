@@ -9,32 +9,46 @@ calibrazione.
 
 ---
 
-## 1. Cosa serve
+## 1. Avvio (UNA cella) e workflow automatico
 
-- un account Google (per Colab);
-- un account GitHub (per il repo privato);
-- nient'altro: la GPU è quella gratuita di Colab.
+- **`START.ipynb`** — **una sola cella**: clona il repo, installa le dipendenze,
+  calibra solo se serve, avvia app + tunnel, carica il modello. Stampa `LINK` e
+  `CHIAVE`.
+- **`open.html`** — pagina di apertura: rileva da sola se l'app è online, offre
+  il pulsante per aprirla o per riavviare la GPU.
+- **`AGENT.md`** — manuale per un agente WorkBuddy. Un amico apre una nuova chat
+  con questo repo come workspace e dice *«apri l'app e continua il progetto»*:
+  l'agente avvia Colab, aggiorna `control.json`, poi modifica il codice ed
+  esegue gli esperimenti da solo, senza altri click.
+- **`remote_ctl.py`** — `R.sync()` carica il workspace sulla VM e ricarica i
+  moduli a caldo (il link non cambia); `R.exec()` esegue Python sulla GPU;
+  `R.background()` + `R.poll()` gestiscono i lavori lunghi.
 
-Il modello è **Qwen3-1.7B** in 4-bit (fallback `Qwen2.5-1.5B-Instruct`). Non è nel
-repo: GitHub blocca i file oltre 100 MB e un 1.5B in 4-bit pesa ~1 GB. Viene
-scaricato da HuggingFace al primo avvio su Colab (~1 minuto). Se vuoi i pesi nel
-repo, vedi §6.
+Il canale di amministrazione è protetto da `deploy_key` in `control.json`.
+**Il repo deve restare privato**: la chiave sta nel repo, quindi coincide con
+l'elenco dei collaboratori. Se lo rendi pubblico, ruota la chiave e passala
+tramite il Secret Colab `STEERLAB_DEPLOY_KEY`.
+
+> Onestà: Colab free **si scollega** dopo un periodo di inattività. Non esiste
+> una GPU gratuita sempre accesa senza una sessione browser attiva. Il riavvio
+> è però una cella sola (o un'istruzione al tuo agente). Con un tunnel
+> Cloudflare **nominato** (Secret `CLOUDFLARE_TUNNEL_TOKEN` + `public_url` in
+> `config.json`) il link resta **fisso** fra riavvii.
 
 ---
 
-## 2. Primo avvio su Colab (5 minuti)
+## 2. Cosa serve e primo avvio
 
-1. Apri `colab.ipynb` (dal repo, oppure `File → Upload notebook`).
-2. In Colab: **Runtime → Change runtime type → T4 GPU**.
-3. Nel pannello a sinistra, icona della chiave (**Secrets**), aggiungi:
-   - `GH_TOKEN` = un *personal access token* di GitHub con scope `repo`
-     (GitHub → Settings → Developer settings → Personal access tokens → Fine-grained
-     tokens → *Repository access: only select repositories* → permesso
-     *Contents: Read*). Serve perché il repo è privato.
-   - `HF_TOKEN` (facoltativo): evita i limiti di download di HuggingFace.
-4. Esegui le celle in ordine. L'ultima stampa un link tipo
-   `https://qualcosa.trycloudflare.com`: quello è l'indirizzo da dare agli amici.
-5. Alla chiusura del runtime il link muore. Per riaprirlo, riesegui l'ultima cella.
+- account Google (Colab), account GitHub (repo privato), `GH_TOKEN` nei Secrets
+  di Colab con `Contents: Read` e *Notebook access* attivo.
+- Modello **Qwen3-1.7B**. Il 4-bit è **opzionale**: senza `bitsandbytes` il
+  motore carica in fp16/bf16 e continua (~3.4 GB su una T4 da 16 GB). I pesi
+  non sono nel repo: vengono scaricati al primo avvio.
+
+1. Apri `START.ipynb` (`File → Upload notebook` dal workspace).
+2. **Runtime → Change runtime type → T4 GPU → Save**.
+3. `Ctrl+F9`. Attendi `PRONTO` (5-15 min se deve calibrare).
+4. Apri il **LINK** stampato. `open.html` lo ricorda da solo.
 
 ---
 

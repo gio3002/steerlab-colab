@@ -494,5 +494,44 @@ eseguire `gh auth login` o incollare un PAT.
   la stima), partizionamento dei layer fra assi multipli, decadimento temporale
   (Dyn), pullback di Fisher ricorsivo, validazione su probe held-out.
 
+[2026-11-10 19:50] P4 — WORKFLOW COMPLETAMENTE AUTOMATICO + CALIBRAZIONE REALE.
+  L'utente ha scaricato da Colab i due file di calibrazione (cartella ../a) e
+  li ho installati in calibration/: Qwen/Qwen3-1.7B, 28 layer, hidden 2048,
+  9 assi, directions.npz (9,28,2048) float32 + resid_norm + order. Sono del
+  METODO VECCHIO ("efficiency-weighted allocation"): START.ipynb li rileva
+  (cerca "ablation" in metrics) e ricalibra col nuovo equalizzatore una volta.
+  Estremi misurati: concision 0.10/0.10, tutti gli altri 0.70/0.70 -> sospetti
+  di saturazione dello sweep, da verificare col nuovo allocatore.
+
+  Nuovi file:
+   - START.ipynb: UNA cella che fa clone, pip, calibrazione idempotente, avvio
+     app+tunnel, load modello, e stampa LINK + CHIAVE. Scrive control.json.
+   - control.json: {repo, app_url, deploy_key}. La chiave fissa (48 hex) sta
+     nel repo: e' il modello di permesso "solo chi ha accesso al repo".
+     AVVERTIMENTO: se il repo diventa pubblico la chiave e' pubblica -> ruotare
+     e passarla tramite Secret Colab STEERLAB_DEPLOY_KEY, e gitignorare il file.
+   - remote_ctl.py: Remote.from_control() -> ping/state/exec/deploy/api/chat/
+     sync/send_calibration/background/poll. sync() carica tutti i file di testo
+     del workspace e fa hot reload. Lavori lunghi in background (Cloudflare 524).
+   - AGENT.md: manuale operativo per un ALTRO agente WorkBuddy che apre il repo
+     come workspace in una nuova chat: bootstrap Colab via automazione browser,
+     aggiornamento control.json, ciclo modifica/misura/commit, convenzioni del
+     progetto, diagnostica.
+   - open.html: landing che pinga /api/health, apre l'app o rimanda a Colab,
+     e copia l'istruzione per l'agente. CORS aggiunto a server.py.
+   - app.py: supporto tunnel NOMINATO (CLOUDFLARE_TUNNEL_TOKEN + public_url in
+     config.json) per un link permanente, e watchdog che riavvia cloudflared.
+   - README/COLLAB aggiornati.
+
+  STATO DEL TUNNEL AL MOMENTO DEL COMMIT: il link
+  recognized-communicate-allan-kai.trycloudflare.com risponde Cloudflare 1033
+  = sessione Colab terminata. Non e' un bug del codice: Colab free si scollega.
+  Il riavvio e' START.ipynb (1 cella) oppure una frase all'agente.
+
+  LIMITE FISICO DICHIARATO: nessuna GPU gratuita resta accesa per sempre senza
+  una sessione browser; non esiste auto-start di Colab da una pagina statica
+  su GitHub senza un browser loggato a Google. L'automazione massima ottenibile
+  e': agente WorkBuddy + automazione browser sul profilo dell'utente.
+
 [FASI SUCCESSIVE: DA COMPILARE]
 ================================================================================

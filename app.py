@@ -44,10 +44,30 @@ def start_tunnel(port: int):
         print("    !wget -q https://github.com/cloudflare/cloudflared/releases/latest/"
               "download/cloudflared-linux-amd64 -O cloudflared && chmod +x cloudflared")
         return None
+
+    # Con un tunnel NOMINATO (Cloudflare Zero Trust, gratuito) il link è FISSO:
+    # impostare il Secret Colab CLOUDFLARE_TUNNEL_TOKEN e public_url in
+    # config.json. Senza, si usa il quick tunnel (URL casuale che cambia ad ogni
+    # riavvio della sessione Colab).
+    named = os.environ.get("CLOUDFLARE_TUNNEL_TOKEN", "").strip()
+    if named:
+        cmd = [exe, "tunnel", "--no-autoupdate", "run", "--token", named]
+        try:
+            with open(os.path.join(HERE, "config.json"), encoding="utf-8") as f:
+                fixed = json.load(f).get("public_url", "")
+        except OSError:
+            fixed = ""
+        if fixed:
+            print("\n" + "=" * 72)
+            print("  LINK PUBBLICO FISSO:", fixed)
+            print("=" * 72 + "\n", flush=True)
+    else:
+        cmd = [exe, "tunnel", "--url", f"http://127.0.0.1:{port}", "--no-autoupdate"]
+        fixed = ""
+
     proc = subprocess.Popen(
-        [exe, "tunnel", "--url", f"http://127.0.0.1:{port}", "--no-autoupdate"],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-    url_holder = {"url": None}
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    url_holder = {"url": fixed or None}
 
     def reader():
         pat = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
@@ -60,6 +80,25 @@ def start_tunnel(port: int):
                 print("  " + url_holder["url"])
                 print("=" * 72 + "\n", flush=True)
     threading.Thread(target=reader, daemon=True).start()
+
+    def watchdog():
+        nonlocal proc
+        while True:
+            time.sleep(5)
+            if proc.poll() is not None:
+                print("[tunnel] cloudflared caduto, riavvio...", flush=True)
+                try:
+                    proc = subprocess.Popen(
+                        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                        text=True, bufsize=1)
+                    if not fixed:
+                        threading.Thread(target=lambda: [None for _ in proc.stdout],
+                                         daemon=True).start()
+                except Exception as e:
+                    print("[tunnel] riavvio fallito:", e, flush=True)
+            time.sleep(10)
+
+    threading.Thread(target=watchdog, daemon=True).start()
     for _ in range(40):
         if url_holder["url"]:
             break
