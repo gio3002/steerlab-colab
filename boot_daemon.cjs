@@ -61,10 +61,30 @@ status('chiave_sessione', { key: KEY.slice(0, 8) + '...' });
     args: ['--no-first-run', '--no-default-browser-check',
            '--no-proxy-server', '--proxy-bypass-list=*',
            '--disable-blink-features=AutomationControlled'],
-    viewport: { width: 1320, height: 900 }
+    viewport: { width: 1400, height: 1000 }
   });
   const p = ctx.pages()[0] || await ctx.newPage();
   p.setDefaultTimeout(20000);
+
+  // Il form Google nasce in basso e su certi schermi non si raggiunge.
+  // Zoom leggero + scroll in cima + card ancorata in alto, su OGNI scheda.
+  const CENTER_CSS = `
+    html, body { zoom: 0.82 !important; }
+    body { min-height: 0 !important; }
+    #initialView, .aCsJod, .wtf3ff, main, [role=main] {
+      margin-top: 2vh !important; margin-bottom: 2vh !important;
+    }
+  `;
+  async function center(pg) {
+    try {
+      await pg.evaluate(() => window.scrollTo(0, 0));
+      await pg.addStyleTag({ content: CENTER_CSS });
+    } catch (e) {}
+  }
+  ctx.on('page', pg => {
+    pg.on('domcontentloaded', () => center(pg));
+    center(pg);
+  });
   status('avvio_browser');
 
   await p.goto('https://colab.research.google.com/',
@@ -73,6 +93,18 @@ status('chiave_sessione', { key: KEY.slice(0, 8) + '...' });
   for (const t of ctx.pages())
     if (t !== p && /accounts\.google\.com/.test(t.url())) await t.close().catch(() => {});
   await p.bringToFront();
+  await center(p);
+
+  // Scheda di accesso dedicata: il form resta in alto e centrato.
+  // Dopo il login le cookie valgono anche per la scheda Colab.
+  const login = await ctx.newPage();
+  await login.goto(
+    'https://accounts.google.com/signin/v2/identifier?hl=it&continue=' +
+    encodeURIComponent('https://colab.research.google.com/'),
+    { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+  await center(login);
+  await login.bringToFront();
+  status('richiesta_login', { msg: 'form centrato in alto nella scheda di accesso' });
 
   // ---- upload diretto, con retry se Colab chiede il login ----------------
   let uploaded = false;
@@ -106,7 +138,10 @@ status('chiave_sessione', { key: KEY.slice(0, 8) + '...' });
     } catch (e) {}
     if (uploaded) { status('notebook_caricato'); break; }
     if (attempt === 0)
-      status('attendo_login', { msg: 'se Colab chiede il login, fallo nella finestra' });
+      status('attendo_login', { msg: 'login nella scheda di accesso, form in alto' });
+    await center(login).catch(() => {});
+    await login.bringToFront().catch(() => {});
+    if (attempt % 4 === 3) await p.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
     await sleep(5000);
   }
   if (!uploaded) {
