@@ -422,5 +422,45 @@ eseguire `gh auth login` o incollare un PAT.
   modello e deve avere un ripiego silenzioso; mai far fallire la calibrazione
   per un'ottimizzazione.
 
+[2026-11-10 19:00] ZERO-CLICK: amministrazione remota attraverso il tunnel.
+  Requisito dell'utente: niente click quando l'agente modifica il codice.
+  La soluzione NON e' "chiedere un token GitHub": e' un canale di controllo
+  DENTRO l'app, raggiungibile dal link pubblico.
+  server.py:
+   - DEPLOY_KEY = env STEERLAB_DEPLOY_KEY oppure secrets.token_hex(24), generata
+     a ogni avvio (NON sta nel repo). Stampata in stdout -> app.log; la cella 4
+     del notebook la estrae e la stampa insieme al link.
+   - GET  /api/admin/ping   (senza chiave: versione, device, modello)
+   - POST /api/admin/deploy (X-Deploy-Key): riceve {"files":{path:testo}},
+     scrive solo path relativi con estensione consentita, poi importlib.reload
+     di axes + engine e rebind di globals()["ENGINE"]. Nessun restart di uvicorn
+     => il tunnel cloudflared (processo separato) resta vivo e IL LINK NON CAMBIA.
+   - POST /api/admin/exec   (X-Deploy-Key): exec di Python nella VM con stdout
+     catturato; namespace contiene _g = globals() del server, quindi vede sempre
+     l'ENGINE aggiornato. Serve a installare pacchetti, cambiare modello,
+     lanciare calibrazioni in background, leggere log.
+   - GET  /api/admin/state  (X-Deploy-Key): stato completo.
+   - STEERLAB_ADMIN=0 disattiva tutto.
+  engine.unload(): libera modello, cache direzioni e VRAM prima del reload.
+  Helper lato agente: _work/remote_ctl.py (fuori dal repo) con Remote(base,key)
+  -> ping/state/exec/deploy/api.
+  Test locale (porta 7861, chiave nota): ping 200, exec con chiave errata 403,
+  exec ok ("ciao 4"), deploy scrive static/_probe.txt, hot reload reloaded=True,
+  ENGINE fresco e funzionante dopo il reload. 0 errori.
+
+  ATTENZIONE: Cloudflare Tunnel chiude le richieste lunghe (~100 s, HTTP 524).
+  I lavori >1 min (calibrazione, download modelli) vanno lanciati con
+  subprocess.Popen da /api/admin/exec, scrivendo su un log, e poi POLLati con
+  exec successivi. Mai una singola richiesta lunga.
+
+  MODELLO: Qwen3-1.7B non e' il massimo per una T4 16 GB. Con 4-bit girano
+  7-8B (Qwen3-8B ~5.5 GB di VRAM), e un 14B ~9 GB. L'aggiornamento va fatto
+  DOPO che il canale remoto e' attivo, cosi' l'agente puo' provare, misurare e
+  fare rollback senza click. Se bitsandbytes non e' installabile su Python 3.13
+  il ripiego e' Qwen3-4B in fp16 (~8 GB), comunque molto oltre 1.7B.
+  Sequenza prevista: exec -> pip install bitsandbytes==0.47.0 -> verifica ->
+  deploy di config.json (model_id=Qwen/Qwen3-8B) -> reload -> /api/model/load
+  -> test -> eventuale rollback, tutto da remoto.
+
 [FASI SUCCESSIVE: DA COMPILARE]
 ================================================================================

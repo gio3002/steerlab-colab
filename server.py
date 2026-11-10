@@ -7,13 +7,18 @@ Ogni endpoint ritorna {"ok": bool, ...}; gli errori non sono mai 500 muti.
 
 from __future__ import annotations
 
+import contextlib
+import importlib
+import io
 import json
 import os
+import secrets
 import sys
 import time
 import traceback
+import hmac
 
-from fastapi import Body, FastAPI
+from fastapi import Body, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -26,6 +31,13 @@ import axes as AXES_MOD  # noqa: E402
 STATIC = os.path.join(HERE, "static")
 LOG = os.path.join(HERE, "server.log")
 APP_VERSION = "1.0"
+
+# Chiave di amministrazione: generata a ogni avvio, NON sta nel repo.
+# Viene stampata in app.log e nella cella 4 del notebook. Chi la possiede puo'
+# aggiornare il codice ed eseguire esperimenti senza alcun click in Colab.
+DEPLOY_KEY = os.environ.get("STEERLAB_DEPLOY_KEY") or secrets.token_hex(24)
+print(f"[admin] DEPLOY_KEY={DEPLOY_KEY}", flush=True)
+ADMIN_ON = os.environ.get("STEERLAB_ADMIN", "1") not in ("0", "false", "")
 
 app = FastAPI(title="STEERLAB COLAB", docs_url=None, redoc_url=None)
 
@@ -192,6 +204,96 @@ def get_log():
             return ok(lines=f.readlines()[-60:])
     except OSError:
         return ok(lines=[])
+
+
+
+# ---------------------------------------------------------------------------
+# AMMINISTRAZIONE REMOTA (zero-click)
+# ---------------------------------------------------------------------------
+def _admin_ok(req: Request) -> bool:
+    return ADMIN_ON and hmac.compare_digest(
+        req.headers.get("X-Deploy-Key", ""), DEPLOY_KEY)
+
+
+@app.get("/api/admin/ping")
+def admin_ping():
+    """Senza chiave: dice solo se il canale di amministrazione e' vivo."""
+    return ok(version=APP_VERSION, admin=ADMIN_ON,
+              loaded=ENGINE.model is not None, device=ENGINE.device,
+              model=ENGINE.cfg.get("model_id"),
+              note="usa X-Deploy-Key per deploy/exec/state")
+
+
+@app.post("/api/admin/deploy")
+async def admin_deploy(request: Request):
+    """Scrive file di testo e ricarica i moduli IN PROCESSO.
+
+    Il tunnel e' un processo separato: non si riavvia, quindi il link pubblico
+    resta identico. Nessun push git, nessun "Run all".
+    """
+    if not _admin_ok(request):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, 403)
+    try:
+        payload = await request.json()
+        exts = (".py", ".js", ".html", ".css", ".json", ".txt", ".md", ".ipynb")
+        written = []
+        for rel, content in (payload.get("files") or {}).items():
+            rel = str(rel).replace("\\", "/").lstrip("./")
+            parts = rel.split("/")
+            if not rel or ".." in parts or rel.startswith(".git/") or not rel.endswith(exts):
+                continue
+            path = os.path.join(HERE, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+            written.append(rel)
+        reloaded = False
+        if payload.get("reload", True):
+            import engine as ENGINE_MOD
+            import axes as AXES_MOD_LOCAL
+            try:
+                ENGINE.unload()
+            except Exception:
+                pass
+            importlib.reload(AXES_MOD_LOCAL)
+            importlib.reload(ENGINE_MOD)
+            globals()["ENGINE"] = ENGINE_MOD.ENGINE
+            globals()["EngineError"] = ENGINE_MOD.EngineError
+            reloaded = True
+        return ok(written=written, reloaded=reloaded,
+                  note="chiama /api/model/load per ricaricare i pesi")
+    except Exception as e:
+        _log("admin/deploy", e)
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@app.post("/api/admin/exec")
+async def admin_exec(request: Request):
+    """Esegue Python nella VM e restituisce stdout/stderr. Serve a guidare gli
+    esperimenti (calibrazione, diagnostica GPU, cambio modello) da remoto."""
+    if not _admin_ok(request):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, 403)
+    try:
+        payload = await request.json()
+        g = globals()
+        ns = {"_g": g, "os": os, "sys": sys, "json": json,
+              "time": time, "np": __import__("numpy")}
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            try:
+                exec(str(payload.get("code", "")), ns)
+            except Exception:
+                traceback.print_exc()
+        return ok(output=buf.getvalue()[-20000:])
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@app.get("/api/admin/state")
+def admin_state(request: Request):
+    if not _admin_ok(request):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, 403)
+    return ok(state=ENGINE.state(), version=APP_VERSION, here=HERE)
 
 
 @app.exception_handler(Exception)
