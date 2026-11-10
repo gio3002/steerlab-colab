@@ -462,5 +462,37 @@ eseguire `gh auth login` o incollare un PAT.
   deploy di config.json (model_id=Qwen/Qwen3-8B) -> reload -> /api/model/load
   -> test -> eventuale rollback, tutto da remoto.
 
+[2026-11-10 19:30] EQUALIZZATORE: ricerca di letteratura e riscrittura.
+  L'utente aveva ragione: l'allocazione per-layer NON e' un dettaglio
+  ingegneristico, e' un problema di ricerca aperto. Vecchio metodo (greedy con
+  rendimenti decrescenti su efficienza guadagno/KL) sostituito.
+  Fonti verificate: Góral/Winkels/Basart 2025 arXiv:2512.07667 (IL paper
+  sull'allocazione in profondita': schedule gaussiana, ablazioni a BUDGET
+  COSTANTE contro random/uniform/box; 6 modelli su 7 migliorano); Azizi et al.
+  2025 arXiv:2507.04742 (bound KL chiuso curvature-aware PER LAYER); ITI
+  arXiv:2306.03341; arXiv:2403.05767 (comportamenti fattorizzati per layer);
+  piu' letteratura su bias di profondita', non-monotonicita' di alpha e
+  "leggibile != steerabile". Dettagli e lacune in EQUALIZER_RESEARCH.md.
+  Implementato in equalizer.py:
+   - normalizzazione del guadagno per resid_norm[layer];
+   - qualita' della direzione = coerenza di segno delle coppie minime,
+     calcolata in build_direction SENZA forward aggiuntivi;
+   - efficienza con maschera 0.2L-0.85L;
+   - gaussian depth schedule con mu/sigma adattati ai momenti della curva;
+   - ABLAZIONE A BUDGET COSTANTE su 6 profili (gaussian/uniform/box/single/
+     greedy/random), tutti a somma 1; la gaussiana vince solo se supera il
+     miglior controllo di 0.02 e rispetta il KL, altrimenti si usa il controllo.
+  Il verdetto dell'ablazione e' salvato in calibration.json ed esposto nel
+  modale avanzate (static/axes.js). Test:
+   - unita': tutti i 6 profili sommano 1.0000; choose() premia la gaussiana
+     quando vince e ripiega su "box" quando non supera la soglia;
+   - end-to-end CPU (SmolLM, asse calm, quick, 3 layer): ablazione eseguita,
+     vince "single" (0.506 vs gaussian 0.455, uniform 0.453) -> e' lo stesso
+     controesempio di Mistral-7B riportato da Góral et al. Il sistema non
+     impone il dogma. Calibrazione di test RIMOSSA (era di SmolLM, non Qwen).
+  APERTO (prioritario): matrice di accoppiamento H_ij fra layer (nessun paper
+  la stima), partizionamento dei layer fra assi multipli, decadimento temporale
+  (Dyn), pullback di Fisher ricorsivo, validazione su probe held-out.
+
 [FASI SUCCESSIVE: DA COMPILARE]
 ================================================================================

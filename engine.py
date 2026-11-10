@@ -82,6 +82,9 @@ class Engine:
         # NON va nella _dir_cache: altrimenti la calibrazione crederebbe di avere
         # gia' la direzione di ogni layer e salterebbe il calcolo (bug 2026-11-10).
         self._dir_replica: dict[str, np.ndarray] = {}
+        # Coerenza di segno delle differenze appaiate per (asse, layer):
+        # qualita' della direzione, usata dall'equalizzatore.
+        self._dir_quality: dict[tuple[str, int], float] = {}
         self.load_seconds: float | None = None
         self.last_error: str | None = None
         self._load_calibration()
@@ -339,10 +342,18 @@ class Engine:
         B = [p["b"] for p in ax["pairs"]]
         HA = self._acts(A, layer)
         HB = self._acts(B, layer)
-        d = (HA - HB).mean(0)
+        D = HA - HB                      # una riga per coppia minima
+        d = D.mean(0)
         n = float(np.linalg.norm(d))
         if n < 1e-9:
             raise EngineError(f"direzione nulla per {axis_key} al layer {layer}")
+        # Statistica di COERENZA DI SEGNO (non magnitudine): frazione media di
+        # accordo fra ogni differenza appaiata e la direzione media. La
+        # magnitudine crescerebbe con la profondità e sbilancerebbe il confronto
+        # fra layer (letteratura: fine-grained / SAE-StatSteer).
+        dn = np.maximum(np.linalg.norm(D, axis=1), 1e-9)
+        q = float(np.mean(np.clip((D @ d) / (dn * n), -1.0, 1.0)))
+        self._dir_quality[ck] = max(0.0, q)
         d = (d / n).astype(np.float32)
         self._dir_cache[ck] = d
         return d

@@ -105,12 +105,23 @@ function openModal(k) {
   $a('mright').value = AX.extremes[k].right.toFixed(2);
   const m = AX.extremes[k].metrics || {};
   const gain = m.gain_calibrated, flat = m.gain_flat;
-  $a('mmetrics').textContent =
-    `metodo: ${m.method || '—'}\n` +
-    `guadagno con profilo calibrato: ${gain != null ? Number(gain).toFixed(3) : '—'}` +
-    `   ·   profilo piatto: ${flat != null ? Number(flat).toFixed(3) : '—'}\n` +
-    `estremi misurati: sinistro ${AX.extremes[k].left.toFixed(2)} · destro ${AX.extremes[k].right.toFixed(2)}` +
-    (AX.extremes[k].calibrated ? '' : '\nATTENZIONE: valori di fallback, non misurati su questo modello.');
+  const ab = m.ablation || {};
+  const gs = m.gaussian_mu_sigma || null;
+  const ablLine = ab.winner
+    ? `ablazione a budget costante: vince ${ab.winner} (${ab.reason})` +
+      (ab.scores ? `\n  gaussian ${ab.scores.gaussian} · uniforme ${ab.scores.uniform}` +
+                   ` · box ${ab.scores.box} · singolo ${ab.scores.single}` : '')
+    : '';
+  const gsLine = gs ? `gaussiana adattata: centro layer ${Number(gs[0]).toFixed(1)}` +
+                      ` · larghezza ${Number(gs[1]).toFixed(1)}` : '';
+  $a('mmetrics').textContent = [
+    `metodo: ${m.method || '—'}`,
+    `guadagno con profilo scelto: ${gain != null ? Number(gain).toFixed(3) : '—'}` +
+      `   ·   profilo piatto: ${flat != null ? Number(flat).toFixed(3) : '—'}`,
+    ablLine, gsLine,
+    `estremi misurati: sinistro ${AX.extremes[k].left.toFixed(2)} · destro ${AX.extremes[k].right.toFixed(2)}`,
+    (AX.extremes[k].calibrated ? '' : 'ATTENZIONE: valori di fallback, non misurati su questo modello.')
+  ].filter(Boolean).join('\n');
   $a('modal').classList.remove('hidden');
   drawEq();
 }

@@ -32,6 +32,7 @@ import numpy as np
 import torch
 
 from engine import Engine, CAL_JSON, DIRS_NPZ, CAL_DIR
+import equalizer as EQ
 import axes as AXES_MOD
 
 EPS = 1e-6
@@ -140,7 +141,8 @@ def calibrate(axes_keys: list[str], layer_stride: int, alphas: list[float],
               win_threshold: float, kl_budget: float, max_new: int,
               quick: bool) -> dict:
     eng = Engine()
-    log(f"carico {eng.cfg['model_id']} (4bit={eng.cfg.get('load_4bit')})")
+    log(f"carico {eng.cfg.get('model_dir') or eng.cfg['model_id']} "
+        f"(4bit={eng.cfg.get('load_4bit')})")
     import torch
     gpu = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
     print(f"[preflight] torch {torch.__version__} | {gpu}", flush=True)
@@ -185,18 +187,25 @@ def calibrate(axes_keys: list[str], layer_stride: int, alphas: list[float],
             g, c = measure(eng, ax, av, {key: prof}, max_new)
             gains.append(g)
             costs.append(max(c, 0.0))
-        # 3) profilo
-        prof = [0.0] * L
-        alloc = allocate(gains, costs, budget=8)
-        for l, v in zip(layers, alloc):
-            prof[l] = v
-        # riempi i layer non misurati interpolando
-        for i in range(L):
-            if prof[i] == 0.0 and layers:
-                near = min(layers, key=lambda x: abs(x - i))
-                if abs(near - i) <= max(1, layer_stride // 2):
-                    prof[i] = prof[near]
-        prof = [round(float(x), 4) for x in prof]
+        # 3) EQUALIZZATORE. Non più un greedy a tentativi: profilo gaussiano
+        # adattato all'efficienza per layer, corretto per la norma del residual
+        # (la magnitudine grezza cresce con la profondità) e per la coerenza di
+        # segno delle coppie. Poi ABLAZIONE A BUDGET COSTANTE: tutti i profili
+        # hanno somma 1, cambia solo la forma. È il protocollo di Góral et al.
+        quality = [eng._dir_quality.get((key, l), 1.0) for l in layers]
+        cands = EQ.candidate_profiles(gains, costs, layers, L,
+                                      resid_norm=eng.resid_norm,
+                                      quality=quality)
+        a_ablate = min(0.25, max(0.12, kl_budget * 0.25))
+        scores, kls = {}, {}
+        for cname, cprof in cands.items():
+            g, c = measure(eng, ax, {key: a_ablate}, {key: cprof}, max_new)
+            scores[cname] = float(g)
+            kls[cname] = float(c)
+        decision = EQ.choose(cands, scores, kls, kl_budget=kl_budget)
+        prof = [round(float(x), 6) for x in cands[decision["winner"]]]
+        log(f"{key}: ablazione budget costante -> {decision['winner']} "
+            f"({decision['reason']}) · score {scores}")
 
         # 4) estremi, separati, con il profilo calibrato
         def sweep(sign: int) -> tuple[float, dict]:
@@ -226,14 +235,10 @@ def calibrate(axes_keys: list[str], layer_stride: int, alphas: list[float],
         er, mr = sweep(+1)
         el, ml = sweep(-1)
 
-        # 5) validazione: profilo calibrato vs piatto, stesso α
-        a_test = min(er, 0.4)
-        g_cal, _ = measure(eng, ax, {key: a_test}, {key: prof}, max_new)
-        g_flat, _ = measure(eng, ax, {key: a_test}, {key: [1.0] * L}, max_new)
-        if not (g_cal >= g_flat * 0.95):
-            log(f"{key}: profilo calibrato non batte il piatto ({g_cal:.3f} vs {g_flat:.3f}) -> uso piatto")
-            prof = [1.0] * L
-            g_cal = g_flat
+        # 5) validazione: il confronto col piatto è già dentro l'ablazione,
+        # effettuato a budget costante. Non si ripete una misura diversa.
+        g_cal = scores.get(decision["winner"], 0.0)
+        g_flat = scores.get("uniform", g_cal)
 
         out_axes[key] = {
             "left": ax["left"], "right": ax["right"],
@@ -242,7 +247,11 @@ def calibrate(axes_keys: list[str], layer_stride: int, alphas: list[float],
             "extreme_right": round(abs(er), 4),
             "profile": prof,
             "metrics": {
-                "method": "efficiency-weighted allocation with KL budget",
+                "method": "gaussian depth schedule + equal-budget ablation (Goral 2025)",
+                  "ablation": decision,
+                  "gaussian_mu_sigma": EQ.fit_gaussian(
+                      EQ.efficiency(gains, costs, layers, L,
+                                    eng.resid_norm, quality), L),
                 "layers_measured": layers,
                 "layer_gain": [round(float(x), 4) for x in gains],
                 "layer_cost": [round(float(x), 4) for x in costs],
@@ -270,7 +279,7 @@ def calibrate(axes_keys: list[str], layer_stride: int, alphas: list[float],
         "source": "measured",
         "method": {
             "directions": "paired minimal-pair differences, one per layer",
-            "equalizer": "efficiency-weighted greedy allocation with KL budget",
+            "equalizer": "gaussian depth schedule + equal-budget ablation",
             "extremes": "alpha sweep, largest alpha with positive effect and KL <= budget",
             "references": ["ITI (Li et al. 2023): layer selection by probe accuracy",
                            "CAA (Rimsky et al. 2023): layer choice dominates",
