@@ -28,6 +28,8 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEXT_EXT = (".py", ".js", ".html", ".css", ".json", ".txt", ".md", ".ipynb")
 SKIP_DIRS = {".git", "__pycache__", "_dev", "node_modules", "calibration"}
+# control.json contiene il link della sessione CORRENTE: non va sovrascritto.
+SKIP_FILES = {"control.json", "app.log", "server.log"}
 
 
 class Remote:
@@ -87,7 +89,8 @@ class Remote:
             dirs[:] = [d for d in dirs if d not in SKIP_DIRS or
                        (include_calibration and d == "calibration")]
             for n in names:
-                if not n.endswith(TEXT_EXT) or n.startswith("."):
+                if (not n.endswith(TEXT_EXT) or n.startswith(".")
+                        or n in SKIP_FILES):
                     continue
                 fp = os.path.join(base, n)
                 rel = os.path.relpath(fp, root).replace("\\", "/")
@@ -121,16 +124,16 @@ class Remote:
         """Avvia un comando sulla VM e ritorna subito (evita il timeout 524)."""
         code = (
             "import subprocess\n"
-            f"open('{log}','w').close()\n"
+            f"open({log!r},'w').close()\n"
             f"subprocess.Popen({command!r}, shell=True, "
-            f"stdout=open('{log}','w'), stderr=subprocess.STDOUT)\n"
-            f"print('avviato: {command}')\n"
+            f"stdout=open({log!r},'w'), stderr=subprocess.STDOUT)\n"
+            f"print('avviato:', {command!r})\n"
         )
         return self.exec(code)
 
     def poll(self, log: str = "job.log", tail: int = 40):
         return self.exec(
-            f"import os\n"
-            f"p='{log}'\n"
-            f"t=open(p,encoding='utf-8',errors='replace').read() if os.path.exists(p) else ''\n"
+            "import os\n"
+            f"p={log!r}\n"
+            "t=open(p,encoding='utf-8',errors='replace').read() if os.path.exists(p) else ''\n"
             f"print(''.join(t.splitlines(True)[-{tail}:]))\n")

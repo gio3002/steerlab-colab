@@ -1,0 +1,6 @@
+# LF ovunque: il deploy remoto scrive testo su Linux e su Windows.
+# Senza questa riga, sync() su Windows riscrive i file con CRLF e git vede
+# decine di "modifiche" che non esistono.
+* text=auto eol=lf
+*.npz binary
+*.png binary

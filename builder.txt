@@ -533,5 +533,26 @@ eseguire `gh auth login` o incollare un PAT.
   su GitHub senza un browser loggato a Google. L'automazione massima ottenibile
   e': agente WorkBuddy + automazione browser sul profilo dell'utente.
 
+[2026-11-10 20:05] TEST END-TO-END DEL WORKFLOW + 3 bug corretti.
+  Test locale (porta 7862, chiave da control.json, server uvicorn reale):
+    ping ok=True | exec "GPU remota: cpu" | sync 22 file con reloaded=True |
+    control.json NON sovrascritto | background('python -c "print(123)"') |
+    poll -> "123" | /api/health ok=True.
+  Bug trovati e corretti:
+   1. admin/deploy scriveva con i newline della piattaforma: su Windows
+      riscriveva tutti i file in CRLF e git vedeva 9 modifiche inesistenti.
+      Ora `newline="\n"` + content.replace(CRLF,LF). Aggiunto .gitattributes
+      (`* text=auto eol=lf`, *.npz/*.png binary).
+   2. remote_ctl.collect() includeva control.json: un sync() sovrascriveva il
+      link della sessione corrente con quello (vuoto) del workspace. Aggiunto
+      SKIP_FILES = {control.json, app.log, server.log}.
+   3. background() interpolava il comando in una stringa fra apici singoli:
+      qualsiasi comando con virgolette generava SyntaxError dentro exec().
+      Ora usa repr (!r) per comando e percorso del log; idem poll().
+  Limite documentato: sync() ricarica engine/axes/equalizer/calibrate e gli
+  static, NON server.py (le rotte sono importate una volta). Modifiche a
+  server.py richiedono il riavvio del processo app.py: con un tunnel NOMINATO
+  il link resta, con un quick tunnel cambia e va aggiornato control.json.
+
 [FASI SUCCESSIVE: DA COMPILARE]
 ================================================================================

@@ -249,8 +249,8 @@ async def admin_deploy(request: Request):
                 continue
             path = os.path.join(HERE, rel)
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(content)
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(content.replace("\r\n", "\n"))
             written.append(rel)
         reloaded = False
         if payload.get("reload", True):
