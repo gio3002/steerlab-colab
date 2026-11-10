@@ -161,7 +161,7 @@ def calibrate(axes_keys: list[str], layer_stride: int, alphas: list[float],
         # riempiono i vicini: serve a validare la pipeline su CPU in pochi minuti.
         dir_layers = layers if quick else list(range(L))
         for l in dir_layers:
-            dirs[ai, l] = eng.build_direction(key, l)
+            dirs[ai, l] = eng.build_direction(key, l, force=True)
         if quick:
             for i in range(L):
                 near = min(dir_layers, key=lambda x: abs(x - i))

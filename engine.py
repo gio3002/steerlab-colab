@@ -77,6 +77,10 @@ class Engine:
         self.profiles: dict[str, list[float]] = {}
         self.lock = threading.RLock()
         self._dir_cache: dict[tuple[str, int], np.ndarray] = {}
+        # Replica usata SOLO come ripiego a runtime (assi senza calibrazione).
+        # NON va nella _dir_cache: altrimenti la calibrazione crederebbe di avere
+        # gia' la direzione di ogni layer e salterebbe il calcolo (bug 2026-11-10).
+        self._dir_replica: dict[str, np.ndarray] = {}
         self.load_seconds: float | None = None
         self.last_error: str | None = None
         self._load_calibration()
@@ -195,9 +199,8 @@ class Engine:
             for k in self.order:
                 if k not in self.dir_order:
                     Lc = self.n_layers // 2
-                    d = self.build_direction(k, Lc)
-                    for l in range(self.n_layers):
-                        self._dir_cache.setdefault((k, l), d)
+                    # una sola direzione, tenuta come ripiego: NON riempie la cache
+                    self._dir_replica[k] = self.build_direction(k, Lc, force=True)
             if self.resid_norm.shape[0] != self.n_layers:
                 self._estimate_resid_norm()
             base = self._default_profile()
@@ -284,11 +287,18 @@ class Engine:
             out.append(got["v"])
         return np.stack(out).astype(np.float32)
 
-    def build_direction(self, axis_key: str, layer: int) -> np.ndarray:
-        """d = mean_i(h(a_i) − h(b_i)) al layer dato. Cache in memoria."""
+    def build_direction(self, axis_key: str, layer: int,
+                        force: bool = False) -> np.ndarray:
+        """d = mean_i(h(a_i) - h(b_i)) al layer dato. Cache in memoria.
+
+        force=True ignora cache e replica: lo usa la calibrazione, che deve
+        misurare la direzione VERA di ogni layer.
+        """
         ck = (axis_key, int(layer))
-        if ck in self._dir_cache:
+        if not force and ck in self._dir_cache:
             return self._dir_cache[ck]
+        if not force and axis_key in self._dir_replica:
+            return self._dir_replica[axis_key]
         ax = self.axes[axis_key]
         A = [p["a"] for p in ax["pairs"]]
         B = [p["b"] for p in ax["pairs"]]

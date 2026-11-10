@@ -373,5 +373,27 @@ eseguire `gh auth login` o incollare un PAT.
   git init + primo commit del repo. Il push su GitHub richiede il PAT dell'utente
   (l'agente non può autenticarsi): vedi GIT_GUIDE.md.
 
+[2026-11-10 18:35] BUG CRITICO — la calibrazione misurava 28 volte la stessa direzione.
+  Sintomo: in Colab il log stampava "concision: direzioni per 28 layer in 0.0s".
+  Causa: al load, per gli assi senza file di calibrazione, il motore calcolava UNA
+  direzione (layer centrale) e la copiava in _dir_cache per TUTTI i layer con
+  setdefault((k,l), d). Quando calibrate.py chiamava build_direction(key,l),
+  trovava sempre la cache piena e restituiva la stessa replica: 0 secondi e
+  profilo dell'equalizzatore privo di senso (misurava l'effetto della direzione
+  del layer 14 iniettata a ogni profondita').
+  Fix:
+   1. nuova mappa self._dir_replica[k], separata da _dir_cache; il load ci mette
+      una sola direzione per asse e NON tocca la cache;
+   2. build_direction(axis_key, layer, force=False): con force=True ignora sia
+      cache sia replica (lo usa la calibrazione, che deve misurare il layer vero);
+   3. calibrate.py chiama build_direction(key, l, force=True).
+  Verifica locale (SmolLM2-360M, CPU, 2 assi): dopo il load _dir_cache ha 2 voci
+  (una per asse) invece di 2*32; force layer10 2.01s, layer24 1.77s,
+  cos(d10,d24)=0.1604 (prima sarebbe stato 1.0000); senza force 0.000s con cache
+  hit; replica istantanea. Su T4 il costo stimato e' ~0.1-0.2s per layer.
+  REGOLA GENERALE: qualunque cache che replichi un valore su piu' layer deve
+  stare in una struttura DIVERSA dalla cache dei valori misurati, altrimenti la
+  calibrazione si auto-inganna.
+
 [FASI SUCCESSIVE: DA COMPILARE]
 ================================================================================
