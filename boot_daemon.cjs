@@ -34,6 +34,8 @@ function status(phase, extra) {
   console.log('[' + phase + '] ' + JSON.stringify(extra || {}));
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+// Un timeout su un waitForEvent non deve mai far morire il demone.
+process.on('unhandledRejection', e => console.log('[warn]', String(e).slice(0, 160)));
 
 // ---- chiave di sessione, MAI nel repo ------------------------------------
 let ctl = {};
@@ -75,25 +77,30 @@ status('chiave_sessione', { key: KEY.slice(0, 8) + '...' });
   // ---- upload diretto, con retry se Colab chiede il login ----------------
   let uploaded = false;
   for (let attempt = 0; attempt < 60 && !uploaded; attempt++) {
+    // Strategia A: il pulsante apre un selettore file nativo.
+    // Strategia B: apre un dialogo con <input type=file> nascosto.
+    const fc = p.waitForEvent('filechooser', { timeout: 9000 }).catch(() => null);
     try {
-      const fc = p.waitForEvent('filechooser', { timeout: 12000 });
       const btn = p.getByText(/Upload notebook|Carica notebook/i).first();
-      if (await btn.count()) {
-        await btn.click({ timeout: 8000 });
-        const chooser = await fc;
+      if (await btn.count()) await btn.click({ timeout: 7000 });
+    } catch (e) {}
+    const chooser = await fc;
+    try {
+      if (chooser) {
         await chooser.setFiles(RUNTIME_NB);
         uploaded = true;
-        status('notebook_caricato');
       } else {
-        throw new Error('pulsante Upload notebook non visibile');
+        const inp = p.locator('input[type=file]').first();
+        if (await inp.count()) {
+          await inp.setInputFiles(RUNTIME_NB, { timeout: 8000 });
+          uploaded = true;
+        }
       }
-    } catch (e) {
-      if (attempt === 0)
-        status('attendo_login', { msg: 'se Colab chiede il login, fallo nella finestra' });
-      // Se compare una finestra di login, la lasciamo gestire all'umano e
-      // riproviamo: nessun testo da interpretare, nessun falso negativo.
-      await sleep(5000);
-    }
+    } catch (e) {}
+    if (uploaded) { status('notebook_caricato'); break; }
+    if (attempt === 0)
+      status('attendo_login', { msg: 'se Colab chiede il login, fallo nella finestra' });
+    await sleep(5000);
   }
   if (!uploaded) {
     status('upload_non_riuscito', { msg: 'controlla la finestra Chrome' });
