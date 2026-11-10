@@ -24,10 +24,12 @@ calibrazione.
   moduli a caldo (il link non cambia); `R.exec()` esegue Python sulla GPU;
   `R.background()` + `R.poll()` gestiscono i lavori lunghi.
 
-Il canale di amministrazione è protetto da `deploy_key` in `control.json`.
-**Il repo deve restare privato**: la chiave sta nel repo, quindi coincide con
-l'elenco dei collaboratori. Se lo rendi pubblico, ruota la chiave e passala
-tramite il Secret Colab `STEERLAB_DEPLOY_KEY`.
+Il canale di amministrazione è protetto da `deploy_key`. **La chiave NON è nel
+repo**: `boot_daemon.cjs` ne genera una per ogni sessione e la scrive nel
+`control.json` locale, che è gitignorato (`control.example.json` è il template).
+Così il codice può anche essere pubblico senza dare a nessun estraneo il
+controllo della VM; la modifica del codice resta comunque limitata ai
+collaboratori GitHub con ruolo Write.
 
 > Onestà: Colab free **si scollega** dopo un periodo di inattività. Non esiste
 > una GPU gratuita sempre accesa senza una sessione browser attiva. Il riavvio

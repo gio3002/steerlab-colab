@@ -182,9 +182,10 @@ print(R.exec(code)["output"])
 - Lavori in un clone del repo. `git add -A && git commit -m "..."` e `git push`.
   GitHub verifica l'identità: solo i collaboratori con ruolo Write possono
   pushare. Non serve e non si deve chiedere la password del titolare.
-- **Non committare segreti**: `control.json` contiene `deploy_key`. Se il repo
-  diventa pubblico, ruota la chiave, metti `control.json` in `.gitignore` e
-  passa la chiave tramite il Secret `STEERLAB_DEPLOY_KEY` di Colab.
+- **Non committare segreti**: `control.json` contiene `deploy_key` ed è
+  **gitignorato**. `boot_daemon.cjs` genera una chiave nuova per ogni sessione
+  e la inietta in una copia temporanea di `START.ipynb`. Non copiare mai la
+  chiave in un file tracciato, in `builder.txt` o in un messaggio di commit.
 - Un push **non modifica l'app in esecuzione**: per applicarlo usa `R.sync()`
   (hot reload) oppure riavvia `START.ipynb`.
 

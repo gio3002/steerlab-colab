@@ -582,3 +582,18 @@ eseguire `gh auth login` o incollare un PAT.
 
 [FASI SUCCESSIVE: DA COMPILARE]
 ================================================================================
+
+[2026-11-10 20:35] RETTIFICA DI SICUREZZA (sovrascrive P4/P5 sul punto chiave).
+  Quanto scritto sopra a proposito di "chiave fissa nel repo = elenco dei
+  collaboratori" NON E' PIU' VERO ed era un errore di impostazione: con un repo
+  pubblico la chiave sarebbe stata pubblica. Correzione:
+   - START.ipynb contiene il placeholder __DEPLOY_KEY__, non una chiave;
+   - boot_daemon.cjs genera una chiave casuale per sessione, la scrive nel
+     control.json LOCALE (gitignorato) e la inietta in una copia temporanea
+     _work/START.runtime.ipynb che e' l'unico file caricato su Colab;
+   - control.json rimosso dall'indice, aggiunto control.example.json;
+   - chiave precedente RUOTATA (era finita in commit locali mai pushati).
+  Verifica: `git grep` sui file tracciati non trova chiavi hardcoded.
+  Morale: il permesso di MODIFICARE il codice e' dei collaboratori GitHub;
+  il permesso di CONTROLLARE la VM e' di chi possiede la chiave di sessione.
+  Sono due cose distinte e vanno tenute separate.
