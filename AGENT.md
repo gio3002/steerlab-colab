@@ -36,6 +36,25 @@
      morta. È normale: Colab free si scollega. Devi riavviarla.
 ```
 
+### Riavvio automatico con demone (procedura preferita)
+
+Il repo contiene **`boot_daemon.cjs`**. Avvialo in background:
+
+```bash
+node boot_daemon.cjs                    # se il repo e' la radice del workspace
+STEERLAB_ROOT=/percorso NOTEBOOK_PATH=/percorso/START.ipynb \
+  CONTROL_PATH=/percorso/control.json node boot_daemon.cjs
+```
+
+Fa tutto lui: apre una finestra Chrome con un **profilo persistente dentro il
+workspace**, attende il login Google (una sola volta nella vita del profilo),
+seleziona T4, carica `START.ipynb`, esegue la cella, estrae `LINK` e `CHIAVE`,
+aggiorna `control.json` e **lascia la finestra aperta** per tenere viva la
+sessione. Stato leggibile in `_work/colab_boot_status.json`.
+
+Se il profilo non è ancora loggato, l'unica azione umana è il login in quella
+finestra. Dopo, ogni riavvio è completamente automatico — anche per te.
+
 ### Riavvio automatico (procedura preferita)
 
 Usa le tue capacità di automazione browser (skill `agent-browser` oppure

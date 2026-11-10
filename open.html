@@ -90,28 +90,45 @@
 
   async function check() {
     if (url) {
+      const base = url.replace(/\/$/, '');
+      // 1) risposta leggibile (server con CORS): stato certo.
       try {
         const c = new AbortController();
         const t = setTimeout(() => c.abort(), 4000);
-        const r = await fetch(url.replace(/\/$/, '') + '/api/health',
-                              { signal: c.signal, cache: 'no-store' });
+        const r = await fetch(base + '/api/health', {signal:c.signal, cache:'no-store'});
         clearTimeout(t);
         const j = await r.json();
-        if (j && j.ok) {
-          st.className = 'state on';
-          txt.textContent = 'app online · GPU attiva';
-          open.classList.remove('disabled');
-          open.href = url;
-          cur.textContent = url;
-          localStorage.setItem('steerlab_url', url);
-          return;
-        }
+        if (j && j.ok) return online('app online · GPU attiva');
+      } catch (e) {}
+      // 2) server vecchio senza CORS: risposta opaca, ma l'host risponde.
+      //    La pagina di errore Cloudflare risponde comunque: lo dichiariamo
+      //    come "da verificare" invece di fingere certezza.
+      try {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 4000);
+        await fetch(base + '/api/health',
+                    {signal:c.signal, cache:'no-store', mode:'no-cors'});
+        clearTimeout(t);
+        st.className = 'state wait';
+        txt.textContent = 'raggiungibile · stato non verificabile (CORS assente)';
+        open.classList.remove('disabled'); open.href = url;
+        cur.textContent = url;
+        localStorage.setItem('steerlab_url', url);
+        return;
       } catch (e) {}
     }
     st.className = 'state';
     txt.textContent = 'app offline — avvia la GPU (o dillo al tuo agente)';
     open.classList.add('disabled');
     cur.textContent = url ? 'ultimo link: ' + url : 'nessun link salvato';
+  }
+
+  function online(msg) {
+    st.className = 'state on';
+    txt.textContent = msg;
+    open.classList.remove('disabled'); open.href = url;
+    cur.textContent = url;
+    localStorage.setItem('steerlab_url', url);
   }
 
   // Se control.json è servito insieme a questa pagina, lo usa automaticamente.
