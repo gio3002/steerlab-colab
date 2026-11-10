@@ -1,0 +1,6 @@
+{
+ "repo": "https://github.com/gio3002/steerlab-colab",
+ "app_url": "",
+ "deploy_key": "",
+ "note": "copia in control.json; il demone genera la chiave se manca"
+}

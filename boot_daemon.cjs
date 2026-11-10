@@ -28,6 +28,27 @@ const CONTROL = path.join(ROOT, 'control.json');
 const STATUS = path.join(ROOT, '_work', 'colab_boot_status.json');
 const NBPATH = process.env.NOTEBOOK_PATH || NOTEBOOK;
 const CTL = process.env.CONTROL_PATH || CONTROL;
+const crypto = require('crypto');
+const RUNTIME_NB = path.join(ROOT, '_work', 'START.runtime.ipynb');
+fs.mkdirSync(path.dirname(RUNTIME_NB), { recursive: true });
+
+// La chiave NON sta nel repo: ogni sessione ha la propria. Se manca, la crea.
+let ctl0 = {};
+try { ctl0 = JSON.parse(fs.readFileSync(CTL, 'utf8')); } catch (e) {}
+const SESSION_KEY = ctl0.deploy_key || crypto.randomBytes(24).toString('hex');
+ctl0.repo = ctl0.repo || 'https://github.com/gio3002/steerlab-colab';
+ctl0.deploy_key = SESSION_KEY;
+fs.writeFileSync(CTL, JSON.stringify(ctl0, null, 1));
+status('chiave_sessione', { key: SESSION_KEY.slice(0, 8) + '...' });
+
+// Il notebook nel repo ha un placeholder: si carica una copia con la chiave.
+const nbRaw = JSON.parse(fs.readFileSync(UPLOAD_NB, 'utf8'));
+for (const c of nbRaw.cells) {
+  if (c.cell_type === 'code')
+    c.source = c.source.join('').replace(/__DEPLOY_KEY__/g, SESSION_KEY).split(/(?<=\n)/);
+}
+fs.writeFileSync(RUNTIME_NB, JSON.stringify(nbRaw, null, 1));
+const UPLOAD_NB = RUNTIME_NB;
 const SHOT = path.join(ROOT, '_work', 'colab_boot.png');
 
 function status(phase, extra) {
@@ -85,7 +106,7 @@ function status(phase, extra) {
     await p.getByText('File', { exact: true }).first().click({ timeout: 8000 });
     await p.getByText(/Upload notebook/i).first().click({ timeout: 8000 });
     const chooser = await fc;
-    await chooser.setFiles(NBPATH);
+    await chooser.setFiles(UPLOAD_NB);
     uploaded = true;
     status('notebook_caricato');
   } catch (e) {
@@ -98,7 +119,7 @@ function status(phase, extra) {
     status('cella_avviata');
   } else {
     // fallback: inietta il codice della cella nel primo notebook disponibile
-    const nb = JSON.parse(fs.readFileSync(NBPATH, 'utf8'));
+    const nb = JSON.parse(fs.readFileSync(UPLOAD_NB, 'utf8'));
     const code = nb.cells.filter(c => c.cell_type === 'code')
                          .map(c => c.source.join('')).join('\n');
     const one = 'import base64; exec(base64.b64decode("' +

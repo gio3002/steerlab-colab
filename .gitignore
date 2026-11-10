@@ -9,3 +9,6 @@ models/
 _dev/
 server.log
 app.log
+
+# chiave di sessione: MAI nel repo (ogni sessione ne genera una)
+control.json
