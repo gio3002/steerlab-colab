@@ -91,7 +91,10 @@ function status(phase, extra) {
   for (let i = 0; i < 900; i++) {
     await p.waitForTimeout(3000);
     const t = await p.evaluate(() => document.body.innerText.slice(0, 2000)).catch(() => '');
-    if (!/sign in/i.test(t) && /notebook|recent|welcome|new notebook/i.test(t)) {
+    // Colab mostra questi pulsanti solo quando la home e' pronta all'uso.
+    // NON usare "assenza di Sign in" come criterio: il testo cambia con la
+    // lingua e con i banner, e il demone restava bloccato a tempo indefinito.
+    if (/upload notebook|new notebook|carica notebook|nuovo notebook/i.test(t)) {
       logged = true; break;
     }
     if (i === 0) status('attendo_login', { msg: 'fai login Google nella finestra Chrome' });
@@ -128,6 +131,10 @@ function status(phase, extra) {
 
   if (uploaded) {
     await p.waitForTimeout(6000);
+    try {
+      const conn = p.getByText(/^Connect$/i).first();
+      if (await conn.count()) { await conn.click({ timeout: 5000 }); await p.waitForTimeout(4000); }
+    } catch (e) {}
     await p.keyboard.press('Control+F9');           // Run all (una cella sola)
     status('cella_avviata');
   } else {
