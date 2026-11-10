@@ -42,7 +42,7 @@ fs.writeFileSync(CTL, JSON.stringify(ctl0, null, 1));
 status('chiave_sessione', { key: SESSION_KEY.slice(0, 8) + '...' });
 
 // Il notebook nel repo ha un placeholder: si carica una copia con la chiave.
-const nbRaw = JSON.parse(fs.readFileSync(UPLOAD_NB, 'utf8'));
+const nbRaw = JSON.parse(fs.readFileSync(NBPATH, 'utf8'));
 for (const c of nbRaw.cells) {
   if (c.cell_type === 'code')
     c.source = c.source.join('').replace(/__DEPLOY_KEY__/g, SESSION_KEY).split(/(?<=\n)/);
